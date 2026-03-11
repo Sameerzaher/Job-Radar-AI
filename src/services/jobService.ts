@@ -3,11 +3,13 @@ import { connectToDatabase } from "@/lib/db";
 import { Job, type IJob, type JobStatus } from "@/models/Job";
 import { Match, type IMatch } from "@/models/Match";
 import type { IUser } from "@/models/User";
+import { getApplyConfig, getApplicationStatusFromScore } from "@/config/applyConfig";
 import { scoreJobForUser } from "./scoring";
 import { analyzeJobWithAI } from "./aiJobAnalysis";
 import { tailorResumeForJob } from "./aiResumeTailor";
 import { getValidJobUrl } from "@/lib/urlValidation";
 import { sendHighMatchNotification, isTelegramConfigured } from "./telegram";
+import { logActivity } from "./activityLogger";
 
 const HIGH_MATCH_SCORE_THRESHOLD = 80;
 
@@ -147,6 +149,134 @@ export async function getDistinctFilters(): Promise<{ sources: string[] }> {
   return { sources: sources.filter(Boolean).sort() };
 }
 
+export async function getApplicationStats(userId: { _id: unknown }): Promise<{
+  eligible: number;
+  queued: number;
+  applied: number;
+  appliedWithTailoring: number;
+  failed: number;
+  needsReview: number;
+  readyForReview: number;
+}> {
+  await connectToDatabase();
+  const base = { user: userId._id };
+  const config = getApplyConfig();
+  const [queued, applied, appliedWithTailoring, failed, needsReview, readyForReview, eligible] = await Promise.all([
+    Match.countDocuments({ ...base, applicationStatus: "queued" }),
+    Match.countDocuments({ ...base, applicationStatus: "applied" }),
+    Match.countDocuments({ ...base, applicationStatus: "applied", tailoredUsedInApply: true }),
+    Match.countDocuments({ ...base, applicationStatus: "failed" }),
+    Match.countDocuments({ ...base, applicationStatus: "needs_review" }),
+    Match.countDocuments({ ...base, applicationStatus: "ready_for_review" }),
+    Match.countDocuments({
+      ...base,
+      score: { $gte: config.autoApplyScoreThreshold },
+      applicationStatus: { $in: ["new", "queued", "approved"] }
+    })
+  ]);
+  return { eligible, queued, applied, appliedWithTailoring, failed, needsReview, readyForReview };
+}
+
+/** Backfill applicationStatus from score for matches that have new/undefined. */
+export async function backfillApplicationStatusFromScore(userId: { _id: unknown }): Promise<number> {
+  await connectToDatabase();
+  const matches = await Match.find({
+    user: userId._id,
+    $or: [{ applicationStatus: { $exists: false } }, { applicationStatus: "new" }]
+  }).lean();
+  let updated = 0;
+  for (const m of matches) {
+    const status = getApplicationStatusFromScore(m.score);
+    if (status !== "new") {
+      await Match.updateOne({ _id: m._id }, { $set: { applicationStatus: status } });
+      updated += 1;
+    }
+  }
+  return updated;
+}
+
+export type ReviewQueueItem = {
+  matchId: string;
+  jobId: string;
+  title: string;
+  company: string;
+  source: string;
+  score: number;
+  reasons: string[];
+  failureReason?: string | null;
+  jobUrl: string | null;
+  applicationStatus: string;
+};
+
+export async function getReviewQueueItems(userId: { _id: unknown }): Promise<ReviewQueueItem[]> {
+  await connectToDatabase();
+  await backfillApplicationStatusFromScore(userId);
+  const matches = await Match.find({
+    user: userId._id,
+    applicationStatus: { $in: ["ready_for_review", "needs_review", "failed"] }
+  })
+    .populate("job")
+    .sort({ score: -1 })
+    .lean();
+  const items: ReviewQueueItem[] = [];
+  for (const m of matches) {
+    const job = m.job as unknown as IJob & { _id: unknown };
+    if (!job) continue;
+    items.push({
+      matchId: String(m._id),
+      jobId: String(job._id),
+      title: job.title,
+      company: job.company,
+      source: job.source,
+      score: m.score,
+      reasons: m.reasons ?? [],
+      failureReason: m.failureReason,
+      jobUrl: getValidJobUrl(job),
+      applicationStatus: m.applicationStatus ?? "new"
+    });
+  }
+  return items;
+}
+
+export async function approveMatch(matchId: string, userId: { _id: unknown }): Promise<boolean> {
+  await connectToDatabase();
+  if (!mongoose.Types.ObjectId.isValid(matchId)) return false;
+  const res = await Match.updateOne(
+    { _id: matchId, user: userId._id },
+    { $set: { applicationStatus: "queued" } }
+  );
+  if (res.modifiedCount) {
+    await logActivity({ type: "review", matchId, status: "success", message: "Approved for apply" });
+  }
+  return res.modifiedCount > 0;
+}
+
+export async function rejectMatch(matchId: string, userId: { _id: unknown }): Promise<boolean> {
+  await connectToDatabase();
+  if (!mongoose.Types.ObjectId.isValid(matchId)) return false;
+  const res = await Match.updateOne(
+    { _id: matchId, user: userId._id },
+    { $set: { applicationStatus: "rejected", status: "rejected" } }
+  );
+  if (res.modifiedCount) {
+    await logActivity({ type: "review", matchId, status: "success", message: "Rejected" });
+  }
+  return res.modifiedCount > 0;
+}
+
+export async function retryMatch(matchId: string, userId: { _id: unknown }): Promise<boolean> {
+  await connectToDatabase();
+  if (!mongoose.Types.ObjectId.isValid(matchId)) return false;
+  const res = await Match.updateOne(
+    { _id: matchId, user: userId._id, applicationStatus: { $in: ["failed", "needs_review"] } },
+    { $set: { applicationStatus: "queued", failureReason: null } }
+  );
+  if (res.modifiedCount) {
+    await logActivity({ type: "review", matchId, status: "success", message: "Retry queued" });
+  }
+  return res.modifiedCount > 0;
+}
+
 export async function getJobById(id: string): Promise<IJob | null> {
   await connectToDatabase();
   if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
@@ -162,6 +292,54 @@ export async function getMatchForJobAndUser(
   if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) return null;
   const match = await Match.findOne({ job: jobId, user: userId }).lean();
   return match as IMatch | null;
+}
+
+export async function getOperationalMetrics(userId: { _id: unknown }): Promise<{
+  syncSuccessCount: number;
+  syncFailureCount: number;
+  applySuccessCount: number;
+  applyFailureCount: number;
+  applySuccessRate: number;
+  applyFailureRate: number;
+  reviewQueueCount: number;
+  jobsBySource: Record<string, number>;
+  applicationsByStatus: Record<string, number>;
+}> {
+  await connectToDatabase();
+  const { ActivityLog: ActivityLogModel } = await import("@/models/ActivityLog");
+  const startOfWeek = new Date();
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  const [syncSuccess, syncFailed, applySuccess, applyFailed, reviewQueue, jobCounts, matchCounts] = await Promise.all([
+    ActivityLogModel.countDocuments({ type: "sync", status: "success", createdAt: { $gte: startOfWeek } }),
+    ActivityLogModel.countDocuments({ type: "sync", status: "failed", createdAt: { $gte: startOfWeek } }),
+    ActivityLogModel.countDocuments({ type: "apply", status: "success", createdAt: { $gte: startOfWeek } }),
+    ActivityLogModel.countDocuments({ type: "apply", status: "failed", createdAt: { $gte: startOfWeek } }),
+    Match.countDocuments({
+      user: userId._id,
+      applicationStatus: { $in: ["ready_for_review", "needs_review", "failed"] }
+    }),
+    Job.aggregate<{ _id: string; count: number }>([{ $group: { _id: "$source", count: { $sum: 1 } } }]),
+    Match.aggregate<{ _id: string; count: number }>([
+      { $match: { user: userId._id } },
+      { $group: { _id: "$applicationStatus", count: { $sum: 1 } } }
+    ])
+  ]);
+  const applyTotal = applySuccess + applyFailed;
+  const jobsBySource: Record<string, number> = {};
+  for (const r of jobCounts) jobsBySource[r._id ?? "unknown"] = r.count;
+  const applicationsByStatus: Record<string, number> = {};
+  for (const r of matchCounts) applicationsByStatus[r._id ?? "new"] = r.count;
+  return {
+    syncSuccessCount: syncSuccess,
+    syncFailureCount: syncFailed,
+    applySuccessCount: applySuccess,
+    applyFailureCount: applyFailed,
+    applySuccessRate: applyTotal ? Math.round((applySuccess / applyTotal) * 100) : 0,
+    applyFailureRate: applyTotal ? Math.round((applyFailed / applyTotal) * 100) : 0,
+    reviewQueueCount: reviewQueue,
+    jobsBySource,
+    applicationsByStatus
+  };
 }
 
 /** Ensure a match exists for this job and user (create with score if missing), then run AI analysis and save to match. */

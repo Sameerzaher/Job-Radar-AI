@@ -102,6 +102,9 @@ export function PipelineBoard({ initialColumns, updateStatusAction }: PipelineBo
                     Applied {new Date(match.appliedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </p>
                 )}
+                {column.status === "applied" && (match as { tailoredUsedInApply?: boolean }).tailoredUsedInApply && (
+                  <p className="mt-1 text-ds-caption text-sky-400">Tailored</p>
+                )}
               </button>
             ))}
             {column.matches.length === 0 && (

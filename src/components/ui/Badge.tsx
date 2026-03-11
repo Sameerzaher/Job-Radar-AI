@@ -7,6 +7,8 @@ const variants: Record<string, string> = {
   "score-mid": "bg-amber-500/15 text-amber-400",
   "score-low": "bg-slate-600/40 text-slate-400",
   source: "bg-slate-700/50 text-slate-300",
+  "source-lever": "bg-violet-500/15 text-violet-300",
+  "source-workable": "bg-amber-500/15 text-amber-300",
   status: "bg-slate-700/40 text-slate-400 capitalize",
 };
 

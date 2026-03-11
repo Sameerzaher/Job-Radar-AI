@@ -46,7 +46,17 @@ export function JobDetailModal({
               <ScoreBadge score={job.score} />
               <Badge variant="status">{job.status}</Badge>
               {job.source && (
-                <Badge variant="neutral">{job.source}</Badge>
+                <Badge
+                  variant={
+                    job.source === "Lever"
+                      ? "source-lever"
+                      : job.source === "Workable"
+                        ? "source-workable"
+                        : "source"
+                  }
+                >
+                  {job.source}
+                </Badge>
               )}
             </div>
           </div>

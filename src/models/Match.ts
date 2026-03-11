@@ -4,6 +4,19 @@ export type AIRecommendation = "apply" | "maybe" | "skip";
 
 export type MatchStatus = "new" | "saved" | "applied" | "interview" | "rejected";
 
+export type ApplicationStatus =
+  | "new"
+  | "queued"
+  | "ready_for_review"
+  | "approved"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "needs_review"
+  | "rejected";
+
+export type ApplicationMethod = "greenhouse" | "lever" | "workable" | "manual";
+
 export interface IMatch extends Document {
   user: Types.ObjectId;
   job: Types.ObjectId;
@@ -13,13 +26,21 @@ export interface IMatch extends Document {
   missingSkills?: string[];
   status: MatchStatus;
   appliedAt?: Date;
+  /** Auto-apply workflow state */
+  applicationStatus?: ApplicationStatus;
+  autoApplied?: boolean;
+  applicationMethod?: ApplicationMethod;
+  telegramSent?: boolean;
+  failureReason?: string | null;
   aiSummary?: string;
   whyItMatches?: string;
   aiMissingSkills?: string[];
   recommendation?: AIRecommendation;
-   tailoredResumeSummary?: string;
-   tailoredBulletPoints?: string[];
-   tailoredCoverLetter?: string;
+  tailoredResumeSummary?: string;
+  tailoredBulletPoints?: string[];
+  tailoredCoverLetter?: string;
+  /** True when this application was submitted using tailored cover letter (from TailoredApplication). */
+  tailoredUsedInApply?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,13 +60,24 @@ const MatchSchema = new Schema<IMatch>(
       index: true
     },
     appliedAt: { type: Date },
+    applicationStatus: {
+      type: String,
+      enum: ["new", "queued", "ready_for_review", "approved", "applying", "applied", "failed", "needs_review", "rejected"],
+      default: "new",
+      index: true
+    },
+    autoApplied: { type: Boolean, default: false },
+    applicationMethod: { type: String, enum: ["greenhouse", "lever", "workable", "manual"] },
+    telegramSent: { type: Boolean, default: false },
+    failureReason: { type: String },
     aiSummary: { type: String },
     whyItMatches: { type: String },
     aiMissingSkills: [{ type: String }],
     recommendation: { type: String, enum: ["apply", "maybe", "skip"] },
     tailoredResumeSummary: { type: String },
     tailoredBulletPoints: [{ type: String }],
-    tailoredCoverLetter: { type: String }
+    tailoredCoverLetter: { type: String },
+    tailoredUsedInApply: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

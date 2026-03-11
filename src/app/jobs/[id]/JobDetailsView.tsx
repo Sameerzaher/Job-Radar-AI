@@ -18,6 +18,7 @@ type MatchSerialized = Omit<IMatch, "createdAt" | "updatedAt"> & {
   _id: string;
   createdAt?: string;
   updatedAt?: string;
+  tailoredUsedInApply?: boolean;
 };
 
 type JobDetailsViewProps = {
@@ -203,6 +204,13 @@ export function JobDetailsView({
             Mark rejected
           </button>
         </div>
+        {match?.status === "applied" && (
+          <p className="mt-3 text-sm text-slate-400">
+            {match.tailoredUsedInApply
+              ? "This application used a tailored cover letter from Tailored applications."
+              : "This application used the default cover letter."}
+          </p>
+        )}
         {error && (
           <p className="mt-3 text-sm text-red-400">{error}</p>
         )}

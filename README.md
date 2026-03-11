@@ -116,20 +116,23 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
 
 5. **Sync real jobs (production)**
 
-   **First implementation uses Greenhouse only.** Sync fetches from public Greenhouse boards (see `src/config/sourceRegistry.ts`), normalizes URLs to absolute, and saves only jobs with valid external URLs. Console logs: jobs fetched, jobs saved, jobs skipped, and real URLs captured.
+   **Sources: Greenhouse + Lever.** Sync fetches from public boards (see `src/config/sourceRegistry.ts` and `src/config/publicBoards.ts`), normalizes URLs, and saves only jobs with valid external URLs.
 
-   **Manual sync (recommended for testing):**
+   **Manual sync:**
 
-   - **Dashboard:** Click **Sync now** on the dashboard (Job ingestion pipeline card).
-   - **API:** `POST /api/admin/sync` (optional `x-api-key` header if `ADMIN_API_KEY` is set):
+   - **Dashboard:** Click **Sync now** (runs both Greenhouse and Lever).
+   - **API (all sources):** `POST /api/admin/sync` or `GET/POST /api/sync/all` (optional `x-api-key` if `ADMIN_API_KEY` is set).
+   - **API (per source):** `GET /api/sync/greenhouse`, `GET /api/sync/lever` for single-source sync.
 
    ```bash
    curl -X POST http://localhost:3000/api/admin/sync
+   curl http://localhost:3000/api/sync/all
+   curl http://localhost:3000/api/sync/lever
    ```
 
-   **Scheduled:** `npm run sync:cron` (runs sync on a schedule).
+   **Scheduled:** `npm run sync:cron` (runs full sync on a schedule).
 
-   After sync, the jobs table shows only real jobs; **Open Job** opens the real posting URL in a new tab.
+   After sync, the jobs table shows only real jobs; **Open Job** opens the real posting URL in a new tab. Filter by **Source** (e.g. Greenhouse, Lever) on the jobs page.
 
 6. **Remove old demo/fake jobs (one-time)**
 
@@ -139,15 +142,21 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
    npm run cleanup:jobs
    ```
 
-   Run this once to clear demo data; then run sync so the jobs table displays only real Greenhouse jobs.
+   Run this once to clear demo data; then run sync so the jobs table displays only real jobs (Greenhouse and Lever).
 
 7. **Verifying real jobs**
 
-   - **MongoDB:** Inspect `jobs` collection: `url` should be `https://boards.greenhouse.io/...` (or similar). No `example.com`, `#`, or empty URLs.
-   - **UI:** On `/jobs`, each row’s **Open Job** button should open the real job posting in a new tab.
+   - **MongoDB:** Inspect `jobs` collection: `url` should be real posting links (e.g. `https://boards.greenhouse.io/...` or `https://jobs.lever.co/...`). No `example.com`, `#`, or empty URLs. `source` will be `"Greenhouse"` or `"Lever"`.
+   - **UI:** On `/jobs`, filter by Source (Greenhouse / Lever), and each row’s **Open Job** button opens the real posting in a new tab.
 
 8. **Playwright scraper (optional)**  
    Install Chromium once: `npm run scraper:install`. Set `SCRAPER_CAREERS_URL` in `.env` to a real careers page URL (not the sample). Sync will include it only when the URL is set and not localhost/sample.
+
+9. **Auto-apply and review queue**  
+   - **Score rules:** score ≥ 90 → `queued` for auto-apply; 80–89 → `ready_for_review`; &lt; 80 → `new`.
+   - **Review page:** `/review` lists jobs in ready_for_review, needs_review, failed. Actions: Approve (→ queued), Reject (→ rejected), Retry (→ queued), Open Job, View Details.
+   - **Safety env:** `AUTO_APPLY_ENABLED`, `AUTO_APPLY_SCORE_THRESHOLD` (default 90), `REVIEW_SCORE_MIN` (80), `MAX_APPLICATIONS_PER_RUN`, `MAX_APPLICATIONS_PER_DAY`, `REQUIRE_REVIEW_FOR_SOURCES`, `DRY_RUN_DEFAULT`.
+   - **Manual controls:** Dashboard has Sync all, Auto apply, Dry run, Retry failed. Activity log records sync/apply/review/telegram for metrics.
 
 ### What to build next
 

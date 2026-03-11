@@ -3,8 +3,10 @@ import { getValidJobUrl, isValidJobUrl } from "@/lib/urlValidation";
 import { Job, type IJob } from "@/models/Job";
 import { Match } from "@/models/Match";
 import type { IUser } from "@/models/User";
+import { getApplicationStatusFromScore } from "@/config/applyConfig";
 import { scoreJobForUser } from "./scoring";
 import { sendHighMatchNotification, isTelegramConfigured } from "./telegram";
+import { logActivity } from "./activityLogger";
 import type { IngestJobPayload } from "@/types/job";
 
 const HIGH_MATCH_SCORE_THRESHOLD = 80;
@@ -55,6 +57,7 @@ export async function ingestJob(
   });
 
   const { score, reasons, matchedSkills, missingSkills } = scoreJobForUser(job, user);
+  const applicationStatus = getApplicationStatusFromScore(score);
   const match = await Match.create({
     user: user._id,
     job: job._id,
@@ -62,7 +65,8 @@ export async function ingestJob(
     reasons,
     matchedSkills,
     missingSkills,
-    status: "new"
+    status: "new",
+    applicationStatus
   });
 
   job.matches = [...(job.matches ?? []), match._id];
@@ -87,6 +91,16 @@ export async function ingestJob(
   }
 
   await job.save();
+  console.log("Saved job:", job.title, job.url ?? "");
+  logActivity({
+    type: "sync",
+    source: job.source,
+    jobId: String(job._id),
+    matchId: String(match._id),
+    status: "success",
+    message: "Job saved",
+    details: { title: job.title, company: job.company, score, applicationStatus }
+  }).catch(() => {});
 
   return { job, match };
 }

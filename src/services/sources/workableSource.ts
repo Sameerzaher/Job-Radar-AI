@@ -1,20 +1,10 @@
 import type { IJobSource } from "./types";
 import type { IngestJobPayload } from "@/types/job";
-import { normalizeIngestPayload } from "./utils";
-
-type WorkableJob = {
-  id: string;
-  title: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  url: string;
-  description?: string;
-  updated_at?: string;
-};
+import { fetchWorkableJobs } from "@/services/scrapers/workableScraper";
+import type { WorkableScraperOptions } from "@/services/scrapers/workableScraper";
 
 export interface WorkableSourceConfig {
-  /** Workable subdomain/account, e.g. yourcompany */
+  /** Workable account slug (e.g. from apply.workable.com/{account}) */
   account: string;
   /** Optional API base URL override */
   apiBaseUrl?: string;
@@ -22,40 +12,17 @@ export interface WorkableSourceConfig {
   companyName: string;
 }
 
-async function fetchWorkableJobs(config: WorkableSourceConfig): Promise<WorkableJob[]> {
-  const base = config.apiBaseUrl ?? "https://apply.workable.com/api/v3/accounts";
-  const url = `${base}/${config.account}/jobs?state=published`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("[JobRadar] Workable fetch failed", res.status, await res.text());
-    return [];
-  }
-  const json = (await res.json()) as { results?: WorkableJob[] };
-  return json.results ?? [];
-}
-
+/** Creates a job source that uses the shared Workable scraper. */
 export function createWorkableSource(config: WorkableSourceConfig): IJobSource {
+  const options: WorkableScraperOptions = {
+    account: config.account,
+    companyName: config.companyName,
+    apiBaseUrl: config.apiBaseUrl
+  };
   return {
     label: `workable:${config.account}`,
     async fetchJobs(): Promise<IngestJobPayload[]> {
-      const rawJobs = await fetchWorkableJobs(config);
-      const now = new Date();
-      return rawJobs.map((job) => {
-        const locParts = [job.city, job.state, job.country].filter(Boolean);
-        return normalizeIngestPayload({
-          source: "Workable",
-          externalId: job.id,
-          title: job.title,
-          company: config.companyName,
-          location: locParts.join(", ") || "Unknown",
-          url: job.url,
-          description: job.description ?? "",
-          workModeText: locParts.join(", "),
-          skills: [],
-          postedAt: job.updated_at ?? null,
-          foundAt: now
-        });
-      });
+      return fetchWorkableJobs(options);
     }
   };
 }

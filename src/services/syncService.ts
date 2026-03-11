@@ -3,6 +3,7 @@ import { getOrCreateDefaultUser } from "@/services/userService";
 import { ingestJobs } from "@/services/ingestionService";
 import { SyncLog, type ISyncLog } from "@/models/SyncLog";
 import { syncLogger } from "@/lib/logger";
+import { logActivity } from "./activityLogger";
 import type { IJobSource } from "./sources/types";
 import { getPrimaryJobSources, getOptionalPlaywrightSource } from "@/config/sourceRegistry";
 
@@ -26,6 +27,7 @@ export interface SyncResult {
 export async function runSync(source: IJobSource): Promise<SyncResult> {
   const startedAt = new Date();
   syncLogger.syncStarted(source.label);
+  await logActivity({ type: "sync", source: source.label, status: "started", message: "Sync started" });
 
   await connectToDatabase();
   const user = await getOrCreateDefaultUser();
@@ -35,6 +37,13 @@ export async function runSync(source: IJobSource): Promise<SyncResult> {
     payloads = await source.fetchJobs();
   } catch (err) {
     syncLogger.syncError("Failed to fetch jobs", err);
+    await logActivity({
+      type: "sync",
+      source: source.label,
+      status: "failed",
+      message: "Sync fetch failed",
+      details: { error: err instanceof Error ? err.message : String(err) }
+    });
     const finishedAt = new Date();
     const logEntry = await SyncLog.create({
       startedAt,
@@ -77,6 +86,19 @@ export async function runSync(source: IJobSource): Promise<SyncResult> {
     errors: ingestResult.errors,
     sourceLabel: source.label
   });
+  await logActivity({
+    type: "sync",
+    source: source.label,
+    status: ingestResult.errors.length ? "failed" : "success",
+    message: "Sync completed",
+    details: {
+      jobsFetched,
+      jobsInserted: ingestResult.inserted,
+      duplicatesSkipped: ingestResult.skipped,
+      skippedInvalidUrl: ingestResult.skippedInvalidUrl,
+      errors: ingestResult.errors.length
+    }
+  });
 
   return toResult(logEntry);
 }
@@ -96,13 +118,14 @@ function toResult(log: ISyncLog): SyncResult {
 }
 
 /**
- * Run sync from primary source (Greenhouse only for first implementation).
- * Saves only jobs with valid external URLs. No demo/sample.
+ * Run sync from primary sources (Greenhouse + Lever). Saves only jobs with
+ * valid external URLs. No demo/sample.
  */
 export async function runSyncAll(): Promise<SyncResult> {
   const startedAt = new Date();
-  const sourceLabel = "greenhouse";
+  const sourceLabel = "greenhouse+lever+workable";
   syncLogger.syncStarted(sourceLabel);
+  await logActivity({ type: "sync", source: sourceLabel, status: "started", message: "Sync all started" });
 
   await connectToDatabase();
   const user = await getOrCreateDefaultUser();
@@ -118,6 +141,13 @@ export async function runSyncAll(): Promise<SyncResult> {
       allPayloads = allPayloads.concat(payloads);
     } catch (err) {
       syncLogger.syncError(`Fetch failed (${source.label})`, err);
+      await logActivity({
+        type: "sync",
+        source: source.label,
+        status: "failed",
+        message: "Fetch failed",
+        details: { error: err instanceof Error ? err.message : String(err) }
+      });
     }
   }
 
@@ -147,6 +177,19 @@ export async function runSyncAll(): Promise<SyncResult> {
     matchesCreated: ingestResult.inserted,
     errors: ingestResult.errors,
     sourceLabel
+  });
+  await logActivity({
+    type: "sync",
+    source: sourceLabel,
+    status: ingestResult.errors.length ? "failed" : "success",
+    message: "Sync all completed",
+    details: {
+      jobsFetched,
+      jobsInserted: ingestResult.inserted,
+      duplicatesSkipped: ingestResult.skipped,
+      skippedInvalidUrl: ingestResult.skippedInvalidUrl,
+      errors: ingestResult.errors.length
+    }
   });
 
   return toResult(logEntry);

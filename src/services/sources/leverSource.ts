@@ -1,56 +1,26 @@
 import type { IJobSource } from "./types";
 import type { IngestJobPayload } from "@/types/job";
-import { normalizeIngestPayload } from "./utils";
-
-type LeverJob = {
-  id: string;
-  text: string;
-  categories?: {
-    location?: string;
-    team?: string;
-  };
-  hostedUrl: string;
-  createdAt?: number;
-  descriptionPlain?: string;
-};
+import { fetchLeverJobs } from "@/services/scrapers/leverScraper";
+import type { LeverScraperOptions } from "@/services/scrapers/leverScraper";
 
 export interface LeverSourceConfig {
-  /** Lever company slug, e.g. yourcompany */
+  /** Lever company slug, e.g. stripe, vercel */
   company: string;
+  /** Display company name for the Job model */
+  companyName?: string;
 }
 
-async function fetchLeverJobs(config: LeverSourceConfig): Promise<LeverJob[]> {
-  const url = `https://api.lever.co/v0/postings/${config.company}?mode=json`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("[JobRadar] Lever fetch failed", res.status, await res.text());
-    return [];
-  }
-  const json = (await res.json()) as LeverJob[];
-  return json ?? [];
-}
-
+/**
+ * Creates a job source that uses the shared Lever scraper.
+ * Integrated with the ingestion pipeline (syncService / dashboard Sync now).
+ */
 export function createLeverSource(config: LeverSourceConfig): IJobSource {
+  const companyName = config.companyName ?? config.company;
+  const options: LeverScraperOptions = { company: config.company, companyName };
   return {
     label: `lever:${config.company}`,
     async fetchJobs(): Promise<IngestJobPayload[]> {
-      const rawJobs = await fetchLeverJobs(config);
-      const now = new Date();
-      return rawJobs.map((job) =>
-        normalizeIngestPayload({
-          source: "Lever",
-          externalId: job.id,
-          title: job.text,
-          company: config.company,
-          location: job.categories?.location ?? "Unknown",
-          url: job.hostedUrl,
-          description: job.descriptionPlain ?? "",
-          workModeText: job.categories?.location,
-          skills: [],
-          postedAt: job.createdAt ? new Date(job.createdAt) : null,
-          foundAt: now
-        })
-      );
+      return fetchLeverJobs(options);
     }
   };
 }

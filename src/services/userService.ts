@@ -34,6 +34,17 @@ export async function updateUserProfile(
       | "seniority"
       | "excludedKeywords"
       | "resumeText"
+      | "baseResumeText"
+      | "defaultCoverLetterTemplate"
+      | "yearsOfExperience"
+      | "keyProjects"
+      | "achievements"
+      | "phone"
+      | "linkedinUrl"
+      | "githubUrl"
+      | "portfolioUrl"
+      | "resumeFilePath"
+      | "defaultCoverLetter"
     >
   >
 ): Promise<IUser> {

@@ -23,15 +23,17 @@ export interface SourceConfig {
 }
 
 /**
- * First implementation: Greenhouse only. Feeds the main jobs table with real jobs
- * and real external URLs. Lever can be added later via getRealJobSources().
+ * Primary sources: Greenhouse + Lever. Feeds the main jobs table with real jobs
+ * and real external URLs. Boards aligned with publicBoards.ts.
  */
 const PRIMARY_SOURCE_CONFIGS: SourceConfig[] = [
   { name: "Vercel", provider: "greenhouse", config: { boardToken: "vercel", companyName: "Vercel" } },
   { name: "Lattice", provider: "greenhouse", config: { boardToken: "lattice", companyName: "Lattice" } },
   { name: "Embed", provider: "greenhouse", config: { boardToken: "embed", companyName: "Embed" } },
   { name: "Figma", provider: "greenhouse", config: { boardToken: "figma", companyName: "Figma" } },
-  { name: "Notion", provider: "greenhouse", config: { boardToken: "notion", companyName: "Notion" } }
+  { name: "Notion", provider: "greenhouse", config: { boardToken: "notion", companyName: "Notion" } },
+  { name: "Lever (Demo)", provider: "lever", config: { company: "leverdemo", companyName: "Lever (Demo)" } },
+  { name: "Workable", provider: "workable", config: { account: "workable", companyName: "Workable" } }
 ];
 
 /**
@@ -47,7 +49,10 @@ function buildSourceFromConfig(sc: SourceConfig): IJobSource {
         companyName: sc.config.companyName!
       });
     case "lever":
-      return createLeverSource({ company: sc.config.company! });
+      return createLeverSource({
+        company: sc.config.company!,
+        companyName: sc.config.companyName ?? sc.config.company
+      });
     case "workable":
       return createWorkableSource({
         account: sc.config.account!,

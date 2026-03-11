@@ -11,9 +11,8 @@ function isAdminAuthorized(request: NextRequest): boolean {
 
 /**
  * POST /api/admin/sync
- * Fetches jobs from all registered real sources (Greenhouse, Lever, etc.),
- * saves only jobs with valid external URLs, and creates matches.
- * Demo/sample source is not used.
+ * Fetches jobs from primary source (Greenhouse only), saves only jobs with
+ * valid external URLs, and creates matches. Demo/sample source is not used.
  */
 export async function POST(request: NextRequest) {
   if (!isAdminAuthorized(request)) {

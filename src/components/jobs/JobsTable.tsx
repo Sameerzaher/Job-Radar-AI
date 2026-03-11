@@ -137,7 +137,17 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
                 <TableCell className="text-slate-300">{job.company}</TableCell>
                 <TableCell className="text-slate-500">{job.location}</TableCell>
                 <TableCell>
-                  <Badge variant="source">{job.source}</Badge>
+                  <Badge
+                    variant={
+                      job.source === "Lever"
+                        ? "source-lever"
+                        : job.source === "Workable"
+                          ? "source-workable"
+                          : "source"
+                    }
+                  >
+                    {job.source}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <ScoreBadge score={job.score} />
@@ -189,7 +199,17 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
               <ScoreBadge score={job.score} />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-ds-caption">
-              <Badge variant="source">{job.source}</Badge>
+              <Badge
+                variant={
+                  job.source === "Lever"
+                    ? "source-lever"
+                    : job.source === "Workable"
+                      ? "source-workable"
+                      : "source"
+                }
+              >
+                {job.source}
+              </Badge>
               <Badge variant="status">{job.status}</Badge>
             </div>
             <div className="mt-3 flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>

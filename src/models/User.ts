@@ -12,8 +12,26 @@ export interface IUser extends Document {
   seniority: "junior" | "mid" | "senior" | "junior-mid";
   /** Keywords that reduce score when present in a job (e.g. "PHP", "legacy") */
   excludedKeywords?: string[];
-  /** Plain-text resume used for AI tailoring */
+  /** Plain-text resume used for AI tailoring (base resume content) */
   resumeText?: string;
+  /** Base resume text for tailoring (if not set, resumeText is used) */
+  baseResumeText?: string;
+  /** Optional default cover letter template for tailoring */
+  defaultCoverLetterTemplate?: string;
+  /** Years of experience (e.g. "5") */
+  yearsOfExperience?: string;
+  /** Key projects for tailoring */
+  keyProjects?: string[];
+  /** Key achievements */
+  achievements?: string[];
+  /** Application profile for auto-apply */
+  phone?: string;
+  linkedinUrl?: string;
+  githubUrl?: string;
+  portfolioUrl?: string;
+  /** Server path to resume file for upload (e.g. /app/data/resume.pdf) */
+  resumeFilePath?: string;
+  defaultCoverLetter?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,7 +50,18 @@ const UserSchema = new Schema<IUser>(
       default: "junior-mid"
     },
     excludedKeywords: [{ type: String }],
-    resumeText: { type: String }
+    resumeText: { type: String },
+    baseResumeText: { type: String },
+    defaultCoverLetterTemplate: { type: String },
+    yearsOfExperience: { type: String },
+    keyProjects: [{ type: String }],
+    achievements: [{ type: String }],
+    phone: { type: String },
+    linkedinUrl: { type: String },
+    githubUrl: { type: String },
+    portfolioUrl: { type: String },
+    resumeFilePath: { type: String },
+    defaultCoverLetter: { type: String }
   },
   { timestamps: true }
 );
