@@ -6,6 +6,7 @@ import type { IUser } from "@/models/User";
 import { scoreJobForUser } from "./scoring";
 import { analyzeJobWithAI } from "./aiJobAnalysis";
 import { tailorResumeForJob } from "./aiResumeTailor";
+import { getValidJobUrl } from "@/lib/urlValidation";
 import { sendHighMatchNotification, isTelegramConfigured } from "./telegram";
 
 const HIGH_MATCH_SCORE_THRESHOLD = 80;
@@ -109,7 +110,7 @@ export async function createJobForUser(user: IUser, payload: Partial<IJob>) {
       location: job.location,
       score,
       topMatchingSkills: (matchedSkills ?? []).slice(0, 5),
-      jobLink
+      jobLink: jobLink ?? "Original link unavailable"
     });
     if (sent) {
       job.telegramNotifiedAt = new Date();
@@ -121,8 +122,9 @@ export async function createJobForUser(user: IUser, payload: Partial<IJob>) {
   return { job, match };
 }
 
-export function getJobLink(job: IJob & { url?: string; externalUrl?: string }): string {
-  return job.url || job.externalUrl || "#";
+/** Returns the real external job URL, or null if missing/invalid/placeholder. */
+export function getJobLink(job: IJob & { url?: string; externalUrl?: string }): string | null {
+  return getValidJobUrl(job);
 }
 
 export async function updateJobStatus(

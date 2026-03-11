@@ -6,6 +6,7 @@ export interface ISyncLog extends Document {
   jobsFetched: number;
   jobsInserted: number;
   duplicatesSkipped: number;
+  skippedInvalidUrl: number;
   matchesCreated: number;
   errors: string[];
   sourceLabel: string;
@@ -19,6 +20,7 @@ const SyncLogSchema = new Schema<ISyncLog>(
     jobsFetched: { type: Number, required: true, default: 0 },
     jobsInserted: { type: Number, required: true, default: 0 },
     duplicatesSkipped: { type: Number, required: true, default: 0 },
+    skippedInvalidUrl: { type: Number, required: true, default: 0 },
     matchesCreated: { type: Number, required: true, default: 0 },
     errors: [{ type: String }],
     sourceLabel: { type: String, required: true, default: "unknown" }

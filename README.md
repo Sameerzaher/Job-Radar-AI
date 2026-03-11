@@ -96,11 +96,15 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
    - Copy `.env.example` → `.env`
    - Adjust `MONGODB_URI` if needed, e.g. for your local MongoDB instance.
 
-3. **Seed the database (default user + sample jobs)**
+3. **Seed the database (optional, development only)**
+
+   Creates the default user and sample jobs (without real URLs; "Open Job" will show Unavailable):
 
    ```bash
    npm run seed
    ```
+
+   For real jobs with real posting URLs, skip seed and run sync instead (step 5).
 
 4. **Start the dev server**
 
@@ -110,8 +114,40 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
 
    Then visit `http://localhost:3000` – you’ll be redirected to `/dashboard`. Use `/jobs` for the jobs table and `/profile` to tweak scoring preferences.
 
-5. **Playwright scraper (optional)**  
-   Install Chromium once: `npm run scraper:install`. Sample careers page: `http://localhost:3000/careers-sample.html`. Set `SCRAPER_CAREERS_URL` in `.env` to scrape another URL. Run `npm run sync:cron` or `POST /api/admin/sync` to sync.
+5. **Sync real jobs (production)**
+
+   **First implementation uses Greenhouse only.** Sync fetches from public Greenhouse boards (see `src/config/sourceRegistry.ts`), normalizes URLs to absolute, and saves only jobs with valid external URLs. Console logs: jobs fetched, jobs saved, jobs skipped, and real URLs captured.
+
+   **Manual sync (recommended for testing):**
+
+   - **Dashboard:** Click **Sync now** on the dashboard (Job ingestion pipeline card).
+   - **API:** `POST /api/admin/sync` (optional `x-api-key` header if `ADMIN_API_KEY` is set):
+
+   ```bash
+   curl -X POST http://localhost:3000/api/admin/sync
+   ```
+
+   **Scheduled:** `npm run sync:cron` (runs sync on a schedule).
+
+   After sync, the jobs table shows only real jobs; **Open Job** opens the real posting URL in a new tab.
+
+6. **Remove old demo/fake jobs (one-time)**
+
+   Before or after switching to real ingestion, remove seeded/sample jobs (and their Match records) that have no valid external URL:
+
+   ```bash
+   npm run cleanup:jobs
+   ```
+
+   Run this once to clear demo data; then run sync so the jobs table displays only real Greenhouse jobs.
+
+7. **Verifying real jobs**
+
+   - **MongoDB:** Inspect `jobs` collection: `url` should be `https://boards.greenhouse.io/...` (or similar). No `example.com`, `#`, or empty URLs.
+   - **UI:** On `/jobs`, each row’s **Open Job** button should open the real job posting in a new tab.
+
+8. **Playwright scraper (optional)**  
+   Install Chromium once: `npm run scraper:install`. Set `SCRAPER_CAREERS_URL` in `.env` to a real careers page URL (not the sample). Sync will include it only when the URL is set and not localhost/sample.
 
 ### What to build next
 

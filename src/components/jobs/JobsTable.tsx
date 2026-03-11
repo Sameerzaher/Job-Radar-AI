@@ -1,5 +1,19 @@
 import Link from "next/link";
 import type { IJob } from "@/models/Job";
+import { getValidJobUrl } from "@/lib/urlValidation";
+import {
+  EmptyState,
+  TableRoot,
+  TableHead,
+  TableBody,
+  TableHeaderRow,
+  TableHeaderCell,
+  TableRow,
+  TableCell,
+  Badge,
+  ScoreBadge,
+  Button
+} from "@/components/ui";
 
 type JobWithScore = IJob & {
   score: number;
@@ -8,69 +22,102 @@ type JobWithScore = IJob & {
   missingSkills?: string[];
 };
 
-function jobLink(job: JobWithScore): string {
-  return (job as IJob & { url?: string; externalUrl?: string }).url
-    ?? (job as IJob & { url?: string; externalUrl?: string }).externalUrl
-    ?? "#";
-}
-
 type JobsTableProps = {
   jobs: JobWithScore[];
   onJobSelect?: (job: JobWithScore) => void;
 };
 
+/** Internal = Details (outline). External = Open Job (primary when available, muted Unavailable when not). */
+function JobRowActions({
+  job,
+  onJobSelect
+}: {
+  job: JobWithScore;
+  onJobSelect?: (job: JobWithScore) => void;
+}) {
+  const detailsHref = `/jobs/${job._id.toString()}`;
+  const openJobUrl = getValidJobUrl(job);
+  const hasValidExternalUrl = openJobUrl != null;
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {/* Internal: Details */}
+      {onJobSelect ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => onJobSelect(job)}
+        >
+          Details
+        </Button>
+      ) : (
+        <Link
+          href={detailsHref}
+          className="inline-flex items-center justify-center rounded-ds-lg border border-slate-600 bg-transparent px-3 py-1.5 text-ds-caption font-medium text-slate-300 transition hover:border-slate-500 hover:bg-slate-800"
+        >
+          Details
+        </Link>
+      )}
+      {/* External: Open Job (only real URL) or disabled Unavailable */}
+      {hasValidExternalUrl ? (
+        <Link
+          href={openJobUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center rounded-ds-lg border border-transparent bg-slate-100 px-3 py-1.5 text-ds-caption font-medium text-slate-900 transition hover:bg-white"
+        >
+          Open Job
+        </Link>
+      ) : (
+        <span
+          className="inline-flex items-center justify-center rounded-ds-lg border border-transparent bg-transparent px-3 py-1.5 text-ds-caption font-medium text-slate-500"
+          aria-disabled="true"
+        >
+          Unavailable
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
   if (!jobs.length) {
     return (
-      <div className="glass-panel flex flex-col items-center justify-center gap-2 px-6 py-10 text-center text-sm text-slate-400">
-        <p>No jobs in your radar yet.</p>
-        <p className="max-w-md text-xs text-slate-500">
-          Seed the database or connect a job source to see how matches are
-          scored against your profile.
-        </p>
-      </div>
+      <EmptyState
+        title="No jobs in your radar yet."
+        description="Seed the database or connect a job source to see how matches are scored against your profile."
+      />
     );
   }
 
   return (
-    <div className="glass-panel overflow-hidden">
+    <>
       <div className="hidden md:block">
-        <table className="min-w-full divide-y divide-slate-800/80 text-sm">
-          <thead className="bg-slate-900/80">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Role
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Company
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Location
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Source
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Score
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                Status
-              </th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
+        <TableRoot>
+          <TableHead>
+            <TableHeaderRow>
+              <TableHeaderCell>Role</TableHeaderCell>
+              <TableHeaderCell>Company</TableHeaderCell>
+              <TableHeaderCell>Location</TableHeaderCell>
+              <TableHeaderCell>Source</TableHeaderCell>
+              <TableHeaderCell>Score</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right" />
+            </TableHeaderRow>
+          </TableHead>
+          <TableBody>
             {jobs.map((job) => (
-              <tr
+              <TableRow
                 key={job._id.toString()}
-                className={`hover:bg-slate-900/60 ${onJobSelect ? "cursor-pointer" : ""}`}
                 onClick={onJobSelect ? () => onJobSelect(job) : undefined}
+                clickable={!!onJobSelect}
               >
-                <td className="px-4 py-3 text-sm font-medium text-slate-100">
+                <TableCell>
                   {onJobSelect ? (
                     <button
                       type="button"
-                      className="text-left hover:text-accent hover:underline"
+                      className="text-left text-ds-body font-medium text-slate-100 hover:text-white"
                       onClick={(e) => {
                         e.stopPropagation();
                         onJobSelect(job);
@@ -81,84 +128,45 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
                   ) : (
                     <Link
                       href={`/jobs/${job._id.toString()}`}
-                      className="hover:text-accent hover:underline"
+                      className="text-ds-body font-medium text-slate-100 hover:text-white"
                     >
                       {job.title}
                     </Link>
                   )}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-300">
-                  {job.company}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-400">
-                  {job.location}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-400">
-                  {job.source}
-                </td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
-                    {job.score}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs capitalize text-slate-300">
-                  {job.status}
-                </td>
-                <td className="px-4 py-3 text-right text-xs" onClick={(e) => e.stopPropagation()}>
-                  {onJobSelect ? (
-                    <>
-                      <button
-                        type="button"
-                        className="mr-2 rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                        onClick={() => onJobSelect(job)}
-                      >
-                        Details
-                      </button>
-                      <Link
-                        href={jobLink(job)}
-                        target="_blank"
-                        className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                      >
-                        View
-                      </Link>
-                    </>
-                  ) : (
-                    <>
-                      <Link
-                        href={`/jobs/${job._id.toString()}`}
-                        className="mr-2 rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                      >
-                        Details
-                      </Link>
-                      <Link
-                        href={jobLink(job)}
-                        target="_blank"
-                        className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                      >
-                        View
-                      </Link>
-                    </>
-                  )}
-                </td>
-              </tr>
+                </TableCell>
+                <TableCell className="text-slate-300">{job.company}</TableCell>
+                <TableCell className="text-slate-500">{job.location}</TableCell>
+                <TableCell>
+                  <Badge variant="source">{job.source}</Badge>
+                </TableCell>
+                <TableCell>
+                  <ScoreBadge score={job.score} />
+                </TableCell>
+                <TableCell>
+                  <Badge variant="status">{job.status}</Badge>
+                </TableCell>
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <JobRowActions job={job} onJobSelect={onJobSelect} />
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </TableRoot>
       </div>
 
-      <div className="space-y-3 p-3 md:hidden">
+      <div className="space-y-3 p-4 md:hidden">
         {jobs.map((job) => (
           <div
             key={job._id.toString()}
-            className={`rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3 ${onJobSelect ? "cursor-pointer" : ""}`}
+            className={`rounded-ds-xl border border-slate-800/60 bg-slate-800/20 p-4 ${onJobSelect ? "cursor-pointer" : ""}`}
             onClick={onJobSelect ? () => onJobSelect(job) : undefined}
           >
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0 flex-1">
                 {onJobSelect ? (
                   <button
                     type="button"
-                    className="text-left text-sm font-medium text-slate-100 hover:text-accent hover:underline"
+                    className="text-left text-ds-body font-medium text-slate-100 hover:text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onJobSelect(job);
@@ -169,63 +177,27 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
                 ) : (
                   <Link
                     href={`/jobs/${job._id.toString()}`}
-                    className="text-sm font-medium text-slate-100 hover:text-accent hover:underline"
+                    className="text-ds-body font-medium text-slate-100 hover:text-white"
                   >
                     {job.title}
                   </Link>
                 )}
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p className="mt-0.5 text-ds-caption text-slate-500">
                   {job.company} · {job.location}
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
-                {job.score}
-              </span>
+              <ScoreBadge score={job.score} />
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-              <span>{job.source}</span>
-              <span className="capitalize">{job.status}</span>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-ds-caption">
+              <Badge variant="source">{job.source}</Badge>
+              <Badge variant="status">{job.status}</Badge>
             </div>
             <div className="mt-3 flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-              {onJobSelect ? (
-                <>
-                  <button
-                    type="button"
-                    className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                    onClick={() => onJobSelect(job)}
-                  >
-                    Details
-                  </button>
-                  <Link
-                    href={jobLink(job)}
-                    target="_blank"
-                    className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                  >
-                    View role
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <Link
-                    href={`/jobs/${job._id.toString()}`}
-                    className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                  >
-                    Details
-                  </Link>
-                  <Link
-                    href={jobLink(job)}
-                    target="_blank"
-                    className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:border-accent hover:text-white"
-                  >
-                    View role
-                  </Link>
-                </>
-              )}
+              <JobRowActions job={job} onJobSelect={onJobSelect} />
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
-

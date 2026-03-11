@@ -21,7 +21,7 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
       company: "Tel Aviv Tech Labs",
       location: "Tel Aviv, Israel",
       workMode: "Hybrid",
-      url: "https://example.com/jobs/junior-fullstack",
+      url: "",
       description: "Build web apps with Node.js and React. Junior-friendly role.",
       skillsExtracted: ["Node.js", "React", "TypeScript", "Full Stack"],
       postedAt: weekAgo,
@@ -35,7 +35,7 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
       company: "Cloud Pipeline",
       location: "Remote",
       workMode: "Remote",
-      url: "https://example.com/jobs/backend-node",
+      url: "",
       description: "Backend services with Node.js, MongoDB, and Docker.",
       skillsExtracted: ["Node.js", "MongoDB", "Docker", "Backend"],
       postedAt: weekAgo,
@@ -49,7 +49,7 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
       company: "NextWave",
       location: "Remote",
       workMode: "Remote",
-      url: "https://example.com/jobs/nextjs",
+      url: "",
       description: "Next.js, React, TypeScript. Israel timezone friendly.",
       skillsExtracted: ["Next.js", "React", "TypeScript", "Full Stack"],
       postedAt: weekAgo,
@@ -63,7 +63,7 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
       company: "StartupXYZ",
       location: "Haifa, Israel",
       workMode: "Hybrid",
-      url: "https://example.com/jobs/startupxyz",
+      url: "",
       description: "Full stack role: Node, React, MongoDB.",
       skillsExtracted: ["Node.js", "React", "MongoDB", "TypeScript"],
       postedAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
@@ -77,7 +77,7 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
       company: "DataFlow Inc",
       location: "Remote",
       workMode: "Remote",
-      url: "https://example.com/jobs/dataflow",
+      url: "",
       description: "Node.js backend, Docker, MongoDB.",
       skillsExtracted: ["Node.js", "Docker", "MongoDB"],
       postedAt: weekAgo,
@@ -88,9 +88,9 @@ function buildSamplePayloads(now: Date): IngestJobPayload[] {
 }
 
 /**
- * Sample job source for demo/scheduled sync. Returns static payloads with
- * current foundAt. Duplicates are skipped by ingestion (hash/externalId).
- * Replace with a Playwright scraper or API client by implementing IJobSource.
+ * Sample job source for development/demo only. Returns static payloads with
+ * empty URLs (so they show as "Unavailable" in the UI). Not used in production
+ * sync; runSyncAll() uses only real sources from the source registry.
  */
 export const sampleJobSource: IJobSource = {
   label: "sample",

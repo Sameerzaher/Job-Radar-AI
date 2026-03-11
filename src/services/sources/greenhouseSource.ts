@@ -1,5 +1,6 @@
 import type { IJobSource } from "./types";
 import type { IngestJobPayload } from "@/types/job";
+import { normalizeToAbsoluteUrl } from "@/lib/urlValidation";
 import { normalizeIngestPayload } from "./utils";
 
 type GreenhouseJob = {
@@ -33,26 +34,29 @@ async function fetchGreenhouseJobs(config: GreenhouseSourceConfig): Promise<Gree
 }
 
 export function createGreenhouseSource(config: GreenhouseSourceConfig): IJobSource {
+  const boardBaseUrl = `https://boards.greenhouse.io/${config.boardToken}`;
   return {
     label: `greenhouse:${config.boardToken}`,
     async fetchJobs(): Promise<IngestJobPayload[]> {
       const rawJobs = await fetchGreenhouseJobs(config);
       const now = new Date();
-      return rawJobs.map((job) =>
-        normalizeIngestPayload({
+      return rawJobs.map((job) => {
+        const rawUrl = job.absolute_url ?? "";
+        const url = normalizeToAbsoluteUrl(rawUrl, boardBaseUrl) ?? rawUrl;
+        return normalizeIngestPayload({
           source: "Greenhouse",
           externalId: String(job.id),
           title: job.title,
           company: config.companyName,
           location: job.location?.name ?? "Unknown",
-          url: job.absolute_url,
+          url,
           description: job.content ?? "",
           workModeText: job.location?.name,
           skills: [],
           postedAt: job.updated_at ?? null,
           foundAt: now
-        })
-      );
+        });
+      });
     }
   };
 }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { SectionCard, Button } from "@/components/ui";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Any status" },
@@ -63,12 +64,10 @@ export function JobsFilters({
   }, [router]);
 
   return (
-    <div className="glass-panel p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-            Min score
-          </label>
+    <SectionCard className="!py-4">
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Min score</label>
           <input
             type="number"
             min={0}
@@ -76,17 +75,15 @@ export function JobsFilters({
             placeholder="0"
             value={minScore}
             onChange={(e) => setMinScore(e.target.value)}
-            className="w-20 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
+            className="ds-input w-20"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-            Source
-          </label>
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Source</label>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
+            className="ds-input"
           >
             <option value="">All sources</option>
             {sources.map((s) => (
@@ -96,14 +93,12 @@ export function JobsFilters({
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-            Status
-          </label>
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Status</label>
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
+            className="ds-input"
           >
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value || "any"} value={o.value}>
@@ -112,26 +107,22 @@ export function JobsFilters({
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-            Location
-          </label>
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Location</label>
           <input
             type="text"
             placeholder="e.g. Remote, Israel"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            className="min-w-[140px] rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
+            className="ds-input min-w-[140px]"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-            Sort by
-          </label>
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Sort by</label>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
+            className="ds-input"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -141,22 +132,14 @@ export function JobsFilters({
           </select>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={apply}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-soft"
-          >
+          <Button type="button" variant="primary" size="md" onClick={apply}>
             Apply
-          </button>
-          <button
-            type="button"
-            onClick={clear}
-            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800/60"
-          >
+          </Button>
+          <Button type="button" variant="secondary" size="md" onClick={clear}>
             Clear
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </SectionCard>
   );
 }

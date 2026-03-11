@@ -6,10 +6,70 @@
   color-scheme: dark;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   @apply bg-background text-slate-100 antialiased;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  @apply transition-colors duration-150;
+}
+
+button {
+  @apply transition-colors duration-150;
+}
+
+::selection {
+  @apply bg-accent/40 text-slate-50;
+}
+
+/* Scrollbars (desktop) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-700/70;
+}
+
+*::-webkit-scrollbar-track {
+  @apply bg-slate-900/40;
+}
+
+/* Design system – reusable patterns */
+@layer components {
+  .ds-card {
+    @apply rounded-ds-2xl border border-slate-800/60 bg-slate-900/40 px-ds-card py-ds-card shadow-card sm:px-ds-card-lg sm:py-ds-card-lg;
+  }
+
+  .ds-input {
+    @apply w-full rounded-ds-lg border border-slate-700/80 bg-slate-800/50 px-3 py-2 text-ds-body text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-slate-600 focus:ring-1 focus:ring-slate-500/50;
+  }
+
+  .ds-btn-secondary-sm {
+    @apply inline-flex items-center justify-center rounded-ds-lg border border-slate-600 bg-transparent px-3 py-1.5 text-ds-caption font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800;
+  }
+
+  .ds-btn-primary-md {
+    @apply inline-flex items-center justify-center rounded-ds-lg border border-transparent bg-slate-100 px-4 py-2 text-ds-body font-medium text-slate-900 transition hover:bg-white;
+  }
+
+  .ds-btn-secondary-md {
+    @apply inline-flex items-center justify-center rounded-ds-lg border border-slate-600 bg-transparent px-4 py-2 text-ds-body font-medium text-slate-300 transition hover:bg-slate-800;
+  }
 }
 
 .glass-panel {
-  @apply bg-slate-900/60 border border-slate-800/80 shadow-soft backdrop-blur-xl rounded-2xl;
+  @apply rounded-ds-2xl border border-slate-800/60 bg-slate-900/50 shadow-card backdrop-blur-sm;
 }
+
+.card {
+  @apply rounded-ds-2xl border border-slate-800/60 bg-slate-900/40 shadow-card;
+}
+

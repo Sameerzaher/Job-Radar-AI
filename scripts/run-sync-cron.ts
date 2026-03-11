@@ -1,13 +1,12 @@
 import "dotenv/config";
 import cron from "node-cron";
-import { runSync } from "@/services/syncService";
-import { playwrightJobSource } from "@/services/sources/playwrightJobSource";
+import { runSyncAll } from "@/services/syncService";
 
 const CRON_SCHEDULE = "0 */6 * * *"; // Every 6 hours (at 0 min past hour 0, 6, 12, 18)
 
 async function runSyncJob(): Promise<void> {
   try {
-    await runSync(playwrightJobSource);
+    await runSyncAll();
   } catch (err) {
     console.error("[JobRadar] Cron sync failed:", err);
   }

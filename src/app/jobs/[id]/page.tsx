@@ -49,6 +49,7 @@ export default async function JobDetailPage({ params }: Props) {
   const match = await getMatchForJobAndUser(id, user._id);
   const scoreResult = scoreJobForUser(job as import("@/models/Job").IJob, user);
   const jobLinkUrl = getJobLink(job as import("@/models/Job").IJob & { url?: string; externalUrl?: string });
+  const hasValidJobLink = jobLinkUrl != null;
   const openAIAvailable = isOpenAIAvailable();
   const hasResume = Boolean(user.resumeText && user.resumeText.trim().length > 0);
 
@@ -66,6 +67,7 @@ export default async function JobDetailPage({ params }: Props) {
         match={match}
         scoreResult={scoreResult}
         jobLinkUrl={jobLinkUrl}
+        hasValidJobLink={hasValidJobLink}
         openAIAvailable={openAIAvailable}
         analyzeAction={analyzeJobAction}
         tailorResumeAction={tailorResumeAction}

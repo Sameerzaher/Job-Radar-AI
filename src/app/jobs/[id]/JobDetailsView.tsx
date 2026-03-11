@@ -25,7 +25,8 @@ type JobDetailsViewProps = {
   job: JobSerialized;
   match: MatchSerialized | null;
   scoreResult: MatchScore;
-  jobLinkUrl: string;
+  jobLinkUrl: string | null;
+  hasValidJobLink: boolean;
   openAIAvailable: boolean;
   analyzeAction: (jobId: string) => Promise<void>;
   tailorResumeAction: (jobId: string) => Promise<void>;
@@ -51,6 +52,7 @@ export function JobDetailsView({
   match,
   scoreResult,
   jobLinkUrl,
+  hasValidJobLink,
   openAIAvailable,
   analyzeAction,
   tailorResumeAction,
@@ -133,6 +135,11 @@ export function JobDetailsView({
             {job.source && (
               <p className="mt-1 text-xs text-slate-500">Source: {job.source}</p>
             )}
+            {hasValidJobLink && jobLinkUrl && (
+              <p className="mt-1 text-xs text-slate-500 break-all">
+                Original posting: <span className="text-slate-400">{jobLinkUrl}</span>
+              </p>
+            )}
           </div>
           <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
             <span
@@ -154,14 +161,23 @@ export function JobDetailsView({
 
         {/* Action buttons */}
         <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-800/80 pt-6">
-          <Link
-            href={jobLinkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-soft"
-          >
-            Open original job link
-          </Link>
+          {hasValidJobLink && jobLinkUrl ? (
+            <Link
+              href={jobLinkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-soft"
+            >
+              Open Original Posting
+            </Link>
+          ) : (
+            <span
+              className="inline-flex cursor-not-allowed items-center rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-2.5 text-sm font-medium text-slate-500"
+              title="Original link unavailable"
+            >
+              Original link unavailable
+            </span>
+          )}
           <button
             type="button"
             onClick={() => handleStatus("applied")}

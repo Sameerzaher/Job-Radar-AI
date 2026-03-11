@@ -9,6 +9,7 @@ import {
 import type { JobStatus } from "@/models/Job";
 import { JobsTableWithModal } from "@/components/jobs/JobsTableWithModal";
 import { JobsFilters } from "@/components/jobs/JobsFilters";
+import { PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -79,17 +80,11 @@ export default async function JobsPage({
     typeof searchParams.sortBy === "string" ? searchParams.sortBy : "score-desc";
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            Jobs radar
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Filter by score, location, source, and status. Sort by score or date. Click a job for details and quick actions.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-ds-section">
+      <PageHeader
+        title="Jobs"
+        description="Filter by score, location, source, and status. Click a job for details and quick actions."
+      />
 
       <JobsFilters
         sources={sources}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { BoardColumn } from "@/services/atsService";
 import type { MatchStatus } from "@/models/Match";
+import { Badge, ScoreBadge } from "@/components/ui";
 
 type PipelineBoardProps = {
   initialColumns: BoardColumn[];
@@ -65,58 +66,46 @@ export function PipelineBoard({ initialColumns, updateStatusAction }: PipelineBo
       {columns.map((column) => (
         <div
           key={column.status}
-          className="flex min-h-[260px] flex-col rounded-2xl border border-slate-800/80 bg-slate-950/60"
+          className="flex min-h-[280px] flex-col overflow-hidden rounded-ds-2xl border border-slate-800/60 bg-slate-900/40 shadow-card"
           onDragOver={handleDragOver}
           onDrop={() => handleDrop(column.status)}
         >
-          <div className="flex items-center justify-between border-b border-slate-800/80 px-3 py-2.5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-              {column.title}
-            </p>
-            <span className="rounded-full bg-slate-800/90 px-2 py-0.5 text-xs text-slate-300">
-              {column.matches.length}
-            </span>
+          <div className="flex items-center justify-between border-b border-slate-800/60 px-4 py-3">
+            <p className="text-ds-caption font-medium text-slate-500">{column.title}</p>
+            <Badge variant="neutral">{column.matches.length}</Badge>
           </div>
-          <div className="flex-1 space-y-2 overflow-y-auto p-2">
+          <div className="flex-1 space-y-2 overflow-y-auto p-3">
             {column.matches.map((match) => (
               <button
                 key={match._id.toString()}
                 type="button"
                 draggable
                 onDragStart={() => handleDragStart(match._id.toString(), column.status)}
-                className="group w-full cursor-move rounded-xl border border-slate-800/80 bg-slate-900/60 p-3 text-left text-sm text-slate-200 transition hover:border-accent hover:bg-slate-900"
+                className="w-full cursor-move rounded-ds-xl border border-slate-800/60 bg-slate-800/30 p-3 text-left transition hover:border-slate-700 hover:bg-slate-800/50"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="line-clamp-2 text-xs font-medium text-slate-100">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="line-clamp-2 text-ds-caption font-medium text-slate-100">
                     {match.job.title}
                   </p>
-                  <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                    {match.score}
-                  </span>
+                  <ScoreBadge score={match.score} />
                 </div>
-                <p className="mt-1 line-clamp-1 text-[11px] text-slate-400">
+                <p className="mt-1 line-clamp-1 text-ds-caption text-slate-500">
                   {match.job.company} · {match.job.location}
                 </p>
                 {match.matchedSkills && match.matchedSkills.length > 0 && (
-                  <p className="mt-1 line-clamp-1 text-[11px] text-emerald-400/90">
+                  <p className="mt-1 line-clamp-1 text-ds-caption text-slate-400">
                     {match.matchedSkills.slice(0, 3).join(", ")}
                   </p>
                 )}
                 {match.appliedAt && (
-                  <p className="mt-1 text-[10px] text-slate-500">
-                    Applied{" "}
-                    {new Date(match.appliedAt).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric"
-                    })}
+                  <p className="mt-1 text-ds-caption text-slate-500">
+                    Applied {new Date(match.appliedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </p>
                 )}
               </button>
             ))}
             {column.matches.length === 0 && (
-              <p className="px-1 py-4 text-center text-[11px] text-slate-500">
-                Drag a job here to add to this stage.
-              </p>
+              <p className="py-6 text-center text-ds-caption text-slate-500">Drag a job here</p>
             )}
           </div>
         </div>

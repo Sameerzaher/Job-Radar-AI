@@ -21,7 +21,7 @@ async function main() {
       company: "Tel Aviv Tech Labs",
       location: "Tel Aviv, Israel · Hybrid",
       source: "Manual seed",
-      externalUrl: "https://example.com/jobs/junior-fullstack",
+      url: "",
       status: "new",
       tags: ["Node.js", "React", "TypeScript", "Full Stack", "Hybrid"]
     },
@@ -30,7 +30,7 @@ async function main() {
       company: "Cloud Pipeline",
       location: "Remote",
       source: "Manual seed",
-      externalUrl: "https://example.com/jobs/backend-node",
+      url: "",
       status: "saved",
       tags: ["Node.js", "MongoDB", "Docker", "Backend", "Remote"]
     },
@@ -39,7 +39,7 @@ async function main() {
       company: "NextWave",
       location: "Remote (Israel friendly)",
       source: "Manual seed",
-      externalUrl: "https://example.com/jobs/nextjs",
+      url: "",
       status: "interested",
       tags: ["Next.js", "React", "TypeScript", "Full Stack", "Remote"]
     }

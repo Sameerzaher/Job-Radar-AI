@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getOrCreateDefaultUser, updateUserProfile } from "@/services/userService";
 import { ProfileForm } from "@/components/profile/ProfileForm";
+import { PageHeader } from "@/components/ui";
 
 const profileSchema = z.object({
   name: z.string().min(1),
@@ -37,18 +38,13 @@ export default async function ProfilePage() {
   const user = await getOrCreateDefaultUser();
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-          Profile
-        </h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Tune how Job Radar AI evaluates roles against your preferences.
-        </p>
-      </div>
+    <div className="space-y-ds-section">
+      <PageHeader
+        title="Profile"
+        description="Tune how Job Radar AI evaluates roles against your preferences."
+      />
 
       <ProfileForm initialUser={user} onSave={saveProfile} />
     </div>
   );
 }
-

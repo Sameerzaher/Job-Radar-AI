@@ -1,4 +1,5 @@
 import type { SyncResult } from "@/services/syncService";
+import { SectionCard } from "@/components/ui";
 
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -21,43 +22,46 @@ type LastSyncProps = {
 export function LastSync({ lastSync }: LastSyncProps) {
   if (!lastSync) {
     return (
-      <div className="glass-panel flex items-center justify-between gap-4 p-4">
+      <SectionCard className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+          <p className="text-ds-caption font-medium uppercase tracking-wider text-slate-500">
             Last sync
           </p>
-          <p className="mt-1 text-sm text-slate-300">Never</p>
+          <p className="mt-1 text-ds-body text-slate-300">Never</p>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-ds-caption text-slate-500">
           Run the cron worker or trigger sync via API to populate.
         </p>
-      </div>
+      </SectionCard>
     );
   }
 
   const finishedAt = new Date(lastSync.finishedAt);
   return (
-    <div className="glass-panel flex flex-wrap items-center justify-between gap-4 p-4">
+    <SectionCard className="flex flex-wrap items-center justify-between gap-4">
       <div>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+        <p className="text-ds-caption font-medium uppercase tracking-wider text-slate-500">
           Last sync
         </p>
-        <p className="mt-1 text-sm font-medium text-slate-100">
+        <p className="mt-1 text-ds-body font-medium text-slate-100">
           {formatRelativeTime(finishedAt)}
         </p>
-        <p className="text-xs text-slate-500">
+        <p className="text-ds-caption text-slate-500">
           {finishedAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
         </p>
       </div>
-      <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+      <div className="flex flex-wrap gap-3 text-ds-caption text-slate-400">
         <span>{lastSync.jobsFetched} fetched</span>
         <span>{lastSync.jobsInserted} inserted</span>
-        <span>{lastSync.duplicatesSkipped} skipped</span>
+        <span>{lastSync.duplicatesSkipped} duplicates</span>
+        {lastSync.skippedInvalidUrl != null && lastSync.skippedInvalidUrl > 0 && (
+          <span>{lastSync.skippedInvalidUrl} invalid URL</span>
+        )}
         <span>{lastSync.matchesCreated} matches</span>
         {lastSync.sourceLabel && (
           <span className="text-slate-500">({lastSync.sourceLabel})</span>
         )}
       </div>
-    </div>
+    </SectionCard>
   );
 }

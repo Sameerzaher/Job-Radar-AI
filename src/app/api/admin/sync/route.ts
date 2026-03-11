@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSync } from "@/services/syncService";
-import { playwrightJobSource } from "@/services/sources/playwrightJobSource";
+import { runSyncAll } from "@/services/syncService";
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 
@@ -10,13 +9,19 @@ function isAdminAuthorized(request: NextRequest): boolean {
   return key === ADMIN_API_KEY;
 }
 
+/**
+ * POST /api/admin/sync
+ * Fetches jobs from all registered real sources (Greenhouse, Lever, etc.),
+ * saves only jobs with valid external URLs, and creates matches.
+ * Demo/sample source is not used.
+ */
 export async function POST(request: NextRequest) {
   if (!isAdminAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const result = await runSync(playwrightJobSource);
+    const result = await runSyncAll();
     return NextResponse.json({
       ok: true,
       startedAt: result.startedAt.toISOString(),
@@ -24,6 +29,7 @@ export async function POST(request: NextRequest) {
       jobsFetched: result.jobsFetched,
       jobsInserted: result.jobsInserted,
       duplicatesSkipped: result.duplicatesSkipped,
+      skippedInvalidUrl: result.skippedInvalidUrl,
       matchesCreated: result.matchesCreated,
       errors: result.errors,
       sourceLabel: result.sourceLabel

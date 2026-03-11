@@ -17,6 +17,10 @@ export const syncLogger = {
     console.log(`${timestamp()} ${prefix} Duplicates skipped: ${count}`);
   },
 
+  skippedInvalidUrl(count: number): void {
+    console.log(`${timestamp()} ${prefix} Skipped (invalid URL): ${count}`);
+  },
+
   jobsInserted(count: number): void {
     console.log(`${timestamp()} ${prefix} Jobs inserted: ${count}`);
   },
@@ -36,5 +40,13 @@ export const syncLogger = {
   syncError(message: string, err?: unknown): void {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`${timestamp()} ${prefix} Sync error: ${message}`, detail);
+  },
+
+  /** Log real job URLs captured (saved to DB). */
+  realUrlsCaptured(urls: string[]): void {
+    const n = urls.length;
+    console.log(`${timestamp()} ${prefix} Real URLs captured: ${n}`);
+    urls.slice(0, 20).forEach((u, i) => console.log(`${timestamp()} ${prefix}   ${i + 1}. ${u}`));
+    if (n > 20) console.log(`${timestamp()} ${prefix}   ... and ${n - 20} more`);
   }
 };

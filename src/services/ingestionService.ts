@@ -1,4 +1,5 @@
 import { connectToDatabase } from "@/lib/db";
+import { getValidJobUrl, isValidJobUrl } from "@/lib/urlValidation";
 import { Job, type IJob } from "@/models/Job";
 import { Match } from "@/models/Match";
 import type { IUser } from "@/models/User";
@@ -11,6 +12,8 @@ const HIGH_MATCH_SCORE_THRESHOLD = 80;
 export interface IngestResult {
   inserted: number;
   skipped: number;
+  skippedInvalidUrl: number;
+  insertedUrls: string[];
   errors: string[];
 }
 
@@ -26,6 +29,10 @@ export async function ingestJob(
   payload: IngestJobPayload
 ): Promise<{ job: IJob; match: Awaited<ReturnType<typeof Match.create>> } | null> {
   await connectToDatabase();
+
+  if (!isValidJobUrl(payload.url)) {
+    return null;
+  }
 
   const existing = await findExistingJob(payload.hash, payload.externalId, payload.source);
   if (existing) return null;
@@ -65,7 +72,7 @@ export async function ingestJob(
     isTelegramConfigured() &&
     !job.telegramNotifiedAt
   ) {
-    const jobLink = job.url || job.externalUrl || "#";
+    const jobLink = getValidJobUrl(job) ?? "Original link unavailable";
     const sent = await sendHighMatchNotification({
       title: job.title,
       company: job.company,
@@ -88,13 +95,27 @@ export async function ingestJobs(
   user: IUser,
   payloads: IngestJobPayload[]
 ): Promise<IngestResult> {
-  const result: IngestResult = { inserted: 0, skipped: 0, errors: [] };
+  const result: IngestResult = {
+    inserted: 0,
+    skipped: 0,
+    skippedInvalidUrl: 0,
+    insertedUrls: [],
+    errors: []
+  };
 
   for (const payload of payloads) {
+    if (!isValidJobUrl(payload.url)) {
+      result.skippedInvalidUrl += 1;
+      continue;
+    }
     try {
       const out = await ingestJob(user, payload);
-      if (out) result.inserted += 1;
-      else result.skipped += 1;
+      if (out) {
+        result.inserted += 1;
+        if (out.job.url) result.insertedUrls.push(out.job.url);
+      } else {
+        result.skipped += 1;
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(`${payload.externalId}: ${msg}`);

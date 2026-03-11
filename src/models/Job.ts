@@ -11,7 +11,9 @@ export interface IJob extends Document {
   company: string;
   location: string;
   workMode?: JobWorkMode;
+  /** Original external job posting URL (http/https). Used for "Open Job" / "Open Original Posting". */
   url?: string;
+  /** @deprecated Prefer url. Kept for backward compatibility. */
   externalUrl?: string;
   description?: string;
   skillsExtracted?: string[];
