@@ -31,19 +31,29 @@ export interface ApplyConfig {
   dryRunDefault: boolean;
 }
 
+export interface WorkerConfig {
+  /** Interval between worker ticks (minutes). */
+  intervalMinutes: number;
+  /** Lock considered stale after this many minutes without heartbeat. */
+  lockTimeoutMinutes: number;
+  /** Heartbeat considered stale for UI after this many minutes (can match lock timeout). */
+  heartbeatTtlMinutes: number;
+}
+
 let cached: ApplyConfig | null = null;
+let workerCached: WorkerConfig | null = null;
 
 export function getApplyConfig(): ApplyConfig {
   if (cached) return cached;
   const autoApplyScoreThreshold = parseNum(
     process.env.AUTO_APPLY_SCORE_THRESHOLD,
-    90,
+    82,
     50,
     100
   );
   const reviewScoreMin = parseNum(
     process.env.REVIEW_SCORE_MIN,
-    80,
+    75,
     0,
     autoApplyScoreThreshold - 1
   );
@@ -70,6 +80,16 @@ export function getApplyConfig(): ApplyConfig {
     dryRunDefault: parseBool(process.env.DRY_RUN_DEFAULT, false)
   };
   return cached;
+}
+
+export function getWorkerConfig(): WorkerConfig {
+  if (workerCached) return workerCached;
+  workerCached = {
+    intervalMinutes: parseNum(process.env.AUTO_APPLY_INTERVAL_MINUTES, 10, 1, 1440),
+    lockTimeoutMinutes: parseNum(process.env.AUTO_APPLY_LOCK_TIMEOUT_MINUTES, 30, 5, 1440),
+    heartbeatTtlMinutes: parseNum(process.env.WORKER_HEARTBEAT_TTL_MINUTES, 25, 1, 1440)
+  };
+  return workerCached;
 }
 
 /** Score >= threshold => queued; score in [reviewMin, threshold) => ready_for_review; else new. */

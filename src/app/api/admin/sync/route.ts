@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSyncAll } from "@/services/syncService";
+import { runBatchSync } from "@/services/discovery/batchSyncEngine";
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 
@@ -11,8 +11,7 @@ function isAdminAuthorized(request: NextRequest): boolean {
 
 /**
  * POST /api/admin/sync
- * Fetches jobs from primary source (Greenhouse only), saves only jobs with
- * valid external URLs, and creates matches. Demo/sample source is not used.
+ * Runs batch sync across all enabled boards (discovery engine). Returns structured summary.
  */
 export async function POST(request: NextRequest) {
   if (!isAdminAuthorized(request)) {
@@ -20,18 +19,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await runSyncAll();
+    const result = await runBatchSync();
     return NextResponse.json({
       ok: true,
       startedAt: result.startedAt.toISOString(),
-      finishedAt: result.finishedAt.toISOString(),
-      jobsFetched: result.jobsFetched,
-      jobsInserted: result.jobsInserted,
-      duplicatesSkipped: result.duplicatesSkipped,
-      skippedInvalidUrl: result.skippedInvalidUrl,
-      matchesCreated: result.matchesCreated,
-      errors: result.errors,
-      sourceLabel: result.sourceLabel
+      completedAt: result.completedAt.toISOString(),
+      boardsRun: result.boardsRun,
+      boardsFailed: result.boardsFailed,
+      jobsFetched: result.totalFetched,
+      jobsInserted: result.totalSaved,
+      duplicatesSkipped: result.totalDuplicates,
+      totalInvalid: result.totalInvalid,
+      totalErrors: result.totalErrors,
+      byBoard: result.byBoard
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

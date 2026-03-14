@@ -22,8 +22,16 @@ export interface IJob extends Document {
   hash?: string;
   status: JobStatus;
   tags: string[];
+  /** From board config for filtering (e.g. "US", "global"). */
+  country?: string;
+  /** From board config for filtering. */
+  remoteSupport?: boolean;
   /** Set when a high-match Telegram notification has been sent (once per job) */
   telegramNotifiedAt?: Date;
+  /** URL quality from ingestion: supported_apply_url | generic_careers_page | unsupported_custom_careers_page | invalid_url */
+  urlClassification?: string;
+  /** True only when URL is a supported direct apply URL (Greenhouse/Lever/Workable official hosts). */
+  autoApplySupported?: boolean;
   createdAt: Date;
   updatedAt: Date;
   matches?: Types.ObjectId[];
@@ -54,12 +62,17 @@ const JobSchema = new Schema<IJob>(
       default: "new"
     },
     tags: [{ type: String }],
+    country: { type: String },
+    remoteSupport: { type: Boolean },
     matches: [{ type: Schema.Types.ObjectId, ref: "Match" }],
-    telegramNotifiedAt: { type: Date }
+    telegramNotifiedAt: { type: Date },
+    urlClassification: { type: String },
+    autoApplySupported: { type: Boolean }
   },
   { timestamps: true }
 );
 
 JobSchema.index({ externalId: 1, source: 1 }, { unique: true, sparse: true });
+JobSchema.index({ url: 1 }, { sparse: true });
 
 export const Job = models.Job || model<IJob>("Job", JobSchema);

@@ -47,12 +47,19 @@ function parseFilters(searchParams: SearchParams) {
     sortBy === "score-desc" || sortBy === "score-asc" || sortBy === "newest"
       ? sortBy
       : undefined;
+  const autoApply =
+    typeof searchParams.autoApply === "string" && searchParams.autoApply !== ""
+      ? searchParams.autoApply
+      : undefined;
+  const autoApplySupported =
+    autoApply === "true" ? true : autoApply === "false" ? false : undefined;
   return {
     minScore: Number.isFinite(minScore) ? minScore : undefined,
     source,
     status,
     location,
-    sortBy: validSort
+    sortBy: validSort,
+    autoApplySupported
   };
 }
 
@@ -78,16 +85,19 @@ export default async function JobsPage({
     typeof searchParams.location === "string" ? searchParams.location : "";
   const initialSortBy =
     typeof searchParams.sortBy === "string" ? searchParams.sortBy : "score-desc";
+  const initialAutoApply =
+    typeof searchParams.autoApply === "string" ? searchParams.autoApply : "";
 
   return (
     <div className="space-y-ds-section">
       <PageHeader
         title="Jobs"
-        description="Filter by score, location, source, and status. Click a job for details and quick actions."
+        description="Filter by score, location, source, status, and apply type. Jobs with “Manual” apply are visible for discovery and manual review but are not eligible for the auto-apply queue; only “Auto” jobs use supported apply URLs (Greenhouse, Lever, Workable)."
       />
 
       <JobsFilters
         sources={sources}
+        initialAutoApply={initialAutoApply}
         initialMinScore={initialMinScore}
         initialSource={initialSource}
         initialStatus={initialStatus}

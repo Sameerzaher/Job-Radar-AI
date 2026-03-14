@@ -13,7 +13,9 @@ export type ApplicationStatus =
   | "applied"
   | "failed"
   | "needs_review"
-  | "rejected";
+  | "rejected"
+  | "skipped_rules"
+  | "skipped_unsupported";
 
 export type ApplicationMethod = "greenhouse" | "lever" | "workable" | "manual";
 
@@ -41,6 +43,8 @@ export interface IMatch extends Document {
   tailoredCoverLetter?: string;
   /** True when this application was submitted using tailored cover letter (from TailoredApplication). */
   tailoredUsedInApply?: boolean;
+  /** Set when match was manually or automatically queued for auto-apply. */
+  queuedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,7 +66,7 @@ const MatchSchema = new Schema<IMatch>(
     appliedAt: { type: Date },
     applicationStatus: {
       type: String,
-      enum: ["new", "queued", "ready_for_review", "approved", "applying", "applied", "failed", "needs_review", "rejected"],
+      enum: ["new", "queued", "ready_for_review", "approved", "applying", "applied", "failed", "needs_review", "rejected", "skipped_rules", "skipped_unsupported"],
       default: "new",
       index: true
     },
@@ -77,7 +81,8 @@ const MatchSchema = new Schema<IMatch>(
     tailoredResumeSummary: { type: String },
     tailoredBulletPoints: [{ type: String }],
     tailoredCoverLetter: { type: String },
-    tailoredUsedInApply: { type: Boolean, default: false }
+    tailoredUsedInApply: { type: Boolean, default: false },
+    queuedAt: { type: Date }
   },
   { timestamps: true }
 );

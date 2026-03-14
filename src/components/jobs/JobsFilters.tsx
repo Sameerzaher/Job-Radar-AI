@@ -20,6 +20,12 @@ const SORT_OPTIONS = [
   { value: "newest", label: "Newest first" }
 ];
 
+const AUTO_APPLY_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "true", label: "Auto-apply supported" },
+  { value: "false", label: "Manual only" }
+];
+
 type JobsFiltersProps = {
   sources: string[];
   initialMinScore?: string;
@@ -27,6 +33,7 @@ type JobsFiltersProps = {
   initialStatus?: string;
   initialLocation?: string;
   initialSortBy?: string;
+  initialAutoApply?: string;
 };
 
 export function JobsFilters({
@@ -35,7 +42,8 @@ export function JobsFilters({
   initialSource,
   initialStatus,
   initialLocation,
-  initialSortBy = "score-desc"
+  initialSortBy = "score-desc",
+  initialAutoApply = ""
 }: JobsFiltersProps) {
   const router = useRouter();
   const [minScore, setMinScore] = useState(initialMinScore ?? "");
@@ -43,6 +51,7 @@ export function JobsFilters({
   const [status, setStatus] = useState(initialStatus ?? "");
   const [location, setLocation] = useState(initialLocation ?? "");
   const [sortBy, setSortBy] = useState(initialSortBy);
+  const [autoApply, setAutoApply] = useState(initialAutoApply ?? "");
 
   const apply = useCallback(() => {
     const params = new URLSearchParams();
@@ -51,8 +60,9 @@ export function JobsFilters({
     if (status) params.set("status", status);
     if (location) params.set("location", location);
     if (sortBy && sortBy !== "score-desc") params.set("sortBy", sortBy);
+    if (autoApply) params.set("autoApply", autoApply);
     router.push(`/jobs?${params.toString()}`);
-  }, [minScore, source, status, location, sortBy, router]);
+  }, [minScore, source, status, location, sortBy, autoApply, router]);
 
   const clear = useCallback(() => {
     setMinScore("");
@@ -60,6 +70,7 @@ export function JobsFilters({
     setStatus("");
     setLocation("");
     setSortBy("score-desc");
+    setAutoApply("");
     router.push("/jobs");
   }, [router]);
 
@@ -131,12 +142,35 @@ export function JobsFilters({
             ))}
           </select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Apply</label>
+          <select
+            value={autoApply}
+            onChange={(e) => setAutoApply(e.target.value)}
+            className="ds-input"
+          >
+            {AUTO_APPLY_OPTIONS.map((o) => (
+              <option key={o.value || "any"} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="primary" size="md" onClick={apply}>
             Apply
           </Button>
           <Button type="button" variant="secondary" size="md" onClick={clear}>
             Clear
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => router.push("/jobs?source=Greenhouse&autoApply=true")}
+            title="Source = Greenhouse, Auto-apply supported = true"
+          >
+            Greenhouse auto-apply
           </Button>
         </div>
       </div>

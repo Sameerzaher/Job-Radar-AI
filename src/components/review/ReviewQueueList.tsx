@@ -61,13 +61,20 @@ export function ReviewQueueList({
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge variant="source">{item.source}</Badge>
                   <Badge variant="neutral">Score: {item.score}</Badge>
+                  {item.autoApplySupported ? (
+                    <Badge variant="score-high">Auto-apply supported</Badge>
+                  ) : (
+                    <Badge variant="score-mid">Manual / review only</Badge>
+                  )}
                   <Badge
                     variant={
                       item.applicationStatus === "failed"
                         ? "score-low"
                         : item.applicationStatus === "needs_review"
                           ? "score-mid"
-                          : "default"
+                          : item.applicationStatus === "skipped_rules" || item.applicationStatus === "skipped_unsupported"
+                            ? "score-mid"
+                            : "default"
                     }
                   >
                     {item.applicationStatus}
@@ -88,7 +95,10 @@ export function ReviewQueueList({
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {(item.applicationStatus === "ready_for_review" || item.applicationStatus === "needs_review") && (
+              {(item.applicationStatus === "ready_for_review" ||
+                item.applicationStatus === "needs_review" ||
+                item.applicationStatus === "skipped_rules" ||
+                item.applicationStatus === "skipped_unsupported") && (
                 <Button
                   type="button"
                   variant="primary"

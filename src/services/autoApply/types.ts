@@ -69,6 +69,8 @@ export interface AutoApplyResult {
   failed: number;
   needsReview: number;
   skipped: number;
+  skippedRules: number;
+  skippedUnsupported: number;
   results: Array<{
     jobId: string;
     title: string;

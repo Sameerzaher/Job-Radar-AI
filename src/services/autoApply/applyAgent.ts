@@ -23,12 +23,22 @@ import {
 import { applyWithGreenhouse } from "./greenhouseApply";
 import { applyWithLever } from "./leverApply";
 import { applyWithWorkable } from "./workableApply";
+import { evaluateJobForAutoApply, logRuleDecision } from "@/services/rules/rulesEngine";
+import { classifyProviderUrl } from "./providerUrlClassifier";
+
+const LOG_GH = "[JobRadar] Greenhouse:";
 
 function sourceToMethod(source: string): ApplicationMethod | null {
   if (source === "Greenhouse") return "greenhouse";
   if (source === "Lever") return "lever";
   if (source === "Workable") return "workable";
   return null;
+}
+
+function logGreenhouse(verbose: boolean, source: string, kind: string, detail: string): void {
+  if (verbose && source === "Greenhouse") {
+    console.log(`${LOG_GH} ${kind} | ${detail}`);
+  }
 }
 
 /** Start of today UTC for daily cap. */
@@ -56,12 +66,27 @@ export async function runAutoApply(
   if (!config.autoApplyEnabled && !dryRun) {
     if (verbose) console.log("[JobRadar] Auto-apply disabled (AUTO_APPLY_ENABLED=false)");
     await logActivity({ type: "apply", status: "skipped", message: "Auto-apply disabled by config" });
-    return { queued: 0, applied: 0, failed: 0, needsReview: 0, skipped: 0, results: [] };
+    return { queued: 0, applied: 0, failed: 0, needsReview: 0, skipped: 0, skippedRules: 0, skippedUnsupported: 0, results: [] };
   }
 
   await connectToDatabase();
   const user = await getOrCreateDefaultUser();
   const profile = userToApplicationProfile(user);
+
+  const { backfillApplicationStatusFromScore } = await import("@/services/jobService");
+  const { autoQueueEligibleMatches } = await import("@/services/autoApply/autoQueue");
+
+  await backfillApplicationStatusFromScore(user);
+  const autoQueueResult = await autoQueueEligibleMatches(user);
+  if (verbose && (autoQueueResult.queued > 0 || autoQueueResult.skippedByRules > 0 || autoQueueResult.skippedByLowScore > 0)) {
+    console.log(
+      "[JobRadar] Auto-queue pass | queued=%d skippedByRules=%d skippedByUrl=%d skippedByLowScore=%d",
+      autoQueueResult.queued,
+      autoQueueResult.skippedByRules,
+      autoQueueResult.skippedByUrl,
+      autoQueueResult.skippedByLowScore
+    );
+  }
 
   const appliedToday = await ActivityLog.countDocuments({
     type: "apply",
@@ -73,10 +98,10 @@ export async function runAutoApply(
   if (cap === 0 && !dryRun) {
     if (verbose) console.log("[JobRadar] Auto-apply daily cap reached");
     await logActivity({ type: "apply", status: "info", message: "Daily cap reached", details: { appliedToday } });
-    return { queued: 0, applied: 0, failed: 0, needsReview: 0, skipped: 0, results: [] };
+    return { queued: 0, applied: 0, failed: 0, needsReview: 0, skipped: 0, skippedRules: 0, skippedUnsupported: 0, results: [] };
   }
 
-  const matches = await Match.find({
+  let matches = await Match.find({
     user: user._id,
     applicationStatus: { $in: ["queued", "approved"] }
   })
@@ -85,18 +110,39 @@ export async function runAutoApply(
     .limit((dryRun ? maxApplications : cap) * 2)
     .lean();
 
+  // Prioritize Greenhouse auto-apply-supported jobs first, then by score
+  matches = matches.sort((a, b) => {
+    const srcA = (a.job as { source?: string })?.source;
+    const srcB = (b.job as { source?: string })?.source;
+    const ghA = srcA === "Greenhouse";
+    const ghB = srcB === "Greenhouse";
+    if (ghA && !ghB) return -1;
+    if (!ghA && ghB) return 1;
+    return (b.score ?? 0) - (a.score ?? 0);
+  });
+
+  if (verbose) {
+    console.log("[JobRadar] Auto-apply: %d match(es) in queued/approved", matches.length);
+    if (matches.length === 0) {
+      console.log("[JobRadar] Tip: run Sync, then ensure some jobs have score >= threshold and status queued or approved (or approve from Review queue).");
+    }
+  }
+
   const result: AutoApplyResult = {
     queued: 0,
     applied: 0,
     failed: 0,
     needsReview: 0,
     skipped: 0,
+    skippedRules: 0,
+    skippedUnsupported: 0,
     results: []
   };
 
   const toProcess: Array<{ match: typeof matches[0]; job: NonNullable<typeof matches[0]["job"]> }> = [];
   const limit = dryRun ? maxApplications : cap;
   const tailoringConfig = getTailoringConfig();
+  if (verbose) console.log("[JobRadar] Rules: rule evaluation started");
   for (const m of matches) {
     const job = m.job as unknown as { _id: unknown; source: string; title: string; company: string; url?: string };
     if (!job || typeof job !== "object") continue;
@@ -116,11 +162,14 @@ export async function runAutoApply(
           status: "skipped",
           failureReason: "Tailored content required; moved to ready_for_review"
         });
-        if (verbose) console.log("[JobRadar] Auto-apply skip: tailoring required, moved to ready_for_review", job.title);
+        if (verbose) console.log("[JobRadar] decision: skip – tailoring required, moved to ready_for_review", job.title, job.company);
+        logGreenhouse(verbose, job.source, "needs review", `tailoring required – ${job.title} @ ${job.company}`);
         continue;
       }
     }
     if (config.requireReviewForSources.includes(job.source) && m.applicationStatus !== "approved") {
+      if (verbose) console.log("[JobRadar] decision: skip – source requires review approval first", job.source, job.title);
+      logGreenhouse(verbose, job.source, "needs review", `source requires approval – ${job.title}`);
       result.skipped += 1;
       result.results.push({
         jobId: String(job._id),
@@ -133,7 +182,12 @@ export async function runAutoApply(
       continue;
     }
     if (!isSupportedApplySource(job.source)) {
+      await Match.updateOne(
+        { _id: m._id },
+        { $set: { applicationStatus: "skipped_unsupported", failureReason: "Unsupported source" } }
+      );
       result.skipped += 1;
+      result.skippedUnsupported += 1;
       result.results.push({
         jobId: String(job._id),
         title: job.title,
@@ -142,11 +196,12 @@ export async function runAutoApply(
         status: "skipped",
         failureReason: "Unsupported source"
       });
-      if (verbose) console.log("[JobRadar] Auto-apply skip: unsupported source", job.source);
+      if (verbose) console.log("[JobRadar] decision: skip – unsupported source | provider:", job.source, job.title);
       continue;
     }
     const url = getValidJobUrl(job);
     if (!url || !isValidJobUrl(url)) {
+      if (verbose) console.log("[JobRadar] decision: skip – invalid or missing URL", job.title, job.company);
       result.skipped += 1;
       result.results.push({
         jobId: String(job._id),
@@ -156,10 +211,49 @@ export async function runAutoApply(
         status: "skipped",
         failureReason: "Invalid or missing URL"
       });
-      if (verbose) console.log("[JobRadar] Auto-apply skip: invalid URL");
+      if (verbose) console.log("[JobRadar] decision: skip – invalid URL", job.title);
       continue;
     }
+
+    const urlClassification = classifyProviderUrl(job.source, url);
+    if (urlClassification.classification !== "supported_apply_url") {
+      const failureReason =
+        urlClassification.classification === "unsupported_custom_careers_page"
+          ? "Unsupported careers page URL for auto-apply"
+          : urlClassification.classification === "invalid_url"
+            ? "Invalid or missing URL"
+            : "Unsupported careers page URL for auto-apply";
+      await Match.updateOne(
+        { _id: m._id },
+        { $set: { applicationStatus: "skipped_unsupported", failureReason } }
+      );
+      result.skipped += 1;
+      result.skippedUnsupported += 1;
+      result.results.push({
+        jobId: String(job._id),
+        title: job.title,
+        company: job.company,
+        source: job.source,
+        status: "skipped",
+        failureReason
+      });
+      if (verbose) {
+        console.log("[JobRadar] decision: skip – unsupported URL | hostname:", urlClassification.hostname ?? "—", "| classification:", urlClassification.classification);
+      }
+      continue;
+    }
+    if (verbose) {
+      console.log(
+        "[JobRadar] decision: URL supported | hostname:",
+        urlClassification.hostname,
+        "| provider:",
+        urlClassification.provider,
+        "| handler:",
+        urlClassification.method
+      );
+    }
     if (m.applicationStatus === "applied" && m.autoApplied) {
+      if (verbose) console.log("[JobRadar] decision: skip – already applied", job.title, job.company);
       result.skipped += 1;
       result.results.push({
         jobId: String(job._id),
@@ -172,13 +266,47 @@ export async function runAutoApply(
       continue;
     }
     const method = sourceToMethod(job.source);
-    if (!method) continue;
+    if (!method) {
+      if (verbose) console.log("[JobRadar] decision: skip – no handler for source", job.source, job.title);
+      continue;
+    }
+
+    const ruleResult = await evaluateJobForAutoApply(user, job, m);
+    if (!ruleResult.eligible) {
+      if (verbose) console.log("[JobRadar] decision: skip – rules blocked |", ruleResult.reasons[0] ?? "rules not met", "|", job.title, job.company);
+      const failureReason = ruleResult.reasons[0] ?? "Rules not met";
+      await Match.updateOne(
+        { _id: m._id },
+        { $set: { applicationStatus: "skipped_rules", failureReason } }
+      );
+      result.skipped += 1;
+      result.skippedRules += 1;
+      result.results.push({
+        jobId: String(job._id),
+        title: job.title,
+        company: job.company,
+        source: job.source,
+        status: "skipped",
+        failureReason
+      });
+      logRuleDecision(job.title, job.company, ruleResult, verbose);
+      logGreenhouse(verbose, job.source, "blocked by rules", `${job.title} @ ${job.company} – ${ruleResult.reasons?.join("; ") ?? "rules"}`);
+      continue;
+    }
+    logRuleDecision(job.title, job.company, ruleResult, verbose);
+
+    logGreenhouse(verbose, job.source, "eligible", `${job.title} @ ${job.company}`);
+    if (verbose) console.log("[JobRadar] decision: queued for apply", job.title, job.company, "| method:", method);
     toProcess.push({ match: m, job });
     if (toProcess.length >= limit) break;
   }
 
   result.queued = toProcess.length;
-  if (verbose) console.log("[JobRadar] Auto-apply queued", result.queued, "dryRun:", dryRun);
+  if (verbose) {
+    console.log("[JobRadar] Auto-apply queued", result.queued, "dryRun:", dryRun);
+    const ghCount = toProcess.filter(({ job }) => (job as { source?: string }).source === "Greenhouse").length;
+    if (ghCount > 0) console.log(`${LOG_GH} queued | ${ghCount} Greenhouse job(s) in this run`);
+  }
   await logActivity({
     type: "apply",
     status: "started",
@@ -283,15 +411,18 @@ export async function runAutoApply(
           }
         }
       );
-      const sent = await sendApplicationSuccess({
-        title: job.title,
-        company: job.company,
-        source: job.source,
-        timestamp: now.toISOString()
-      });
-      if (sent) {
-        await Match.updateOne({ _id: match._id }, { $set: { telegramSent: true } });
-        await logActivity({ type: "telegram", status: "success", message: "Application success notification sent", jobId, matchId });
+      try {
+        const sent = await sendApplicationSuccess({
+          title: job.title,
+          company: job.company,
+          source: job.source,
+          timestamp: now.toISOString()
+        });
+        if (sent) {
+          await Match.updateOne({ _id: match._id }, { $set: { telegramSent: true } });
+        }
+      } catch (telegramErr) {
+        if (verbose) console.error("[JobRadar] Telegram application success send failed (apply flow continues):", telegramErr);
       }
       await markTailoredApplicationUsedByMatch(match._id, user._id);
       result.applied += 1;
@@ -334,6 +465,7 @@ export async function runAutoApply(
         failureReason: applyResult.failureReason
       });
       if (verbose) console.log("[JobRadar] Auto-apply needs_review:", job.title, applyResult.failureReason);
+      logGreenhouse(verbose, job.source, "needs review", `${job.title} @ ${job.company} – ${applyResult.failureReason ?? ""}`);
       await logActivity({
         type: "apply",
         source: job.source,
@@ -375,8 +507,22 @@ export async function runAutoApply(
     }
   }
 
-  if (appliedItems.length > 1 && isTelegramConfigured() && !dryRun) {
-    await sendBatchApplicationSummary({ total: appliedItems.length, items: appliedItems });
+  if (!dryRun && isTelegramConfigured()) {
+    const attempted = result.applied + result.failed + result.needsReview;
+    if (attempted > 0 || appliedItems.length > 0) {
+      try {
+        await sendBatchApplicationSummary({
+          total: appliedItems.length,
+          items: appliedItems,
+          attempted,
+          applied: result.applied,
+          failed: result.failed,
+          needsReview: result.needsReview
+        });
+      } catch (telegramErr) {
+        if (verbose) console.error("[JobRadar] Telegram batch summary send failed (apply flow continues):", telegramErr);
+      }
+    }
   }
 
   return result;

@@ -14,4 +14,7 @@ export interface IngestJobPayload {
   foundAt: Date;
   hash: string;
   status?: JobStatus;
+  /** From board config for filtering. */
+  country?: string;
+  remoteSupport?: boolean;
 }

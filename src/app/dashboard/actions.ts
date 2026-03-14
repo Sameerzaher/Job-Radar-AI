@@ -1,19 +1,26 @@
 "use server";
 
-import { runSyncAll, type SyncResult } from "@/services/syncService";
+import { runBatchSync } from "@/services/discovery/batchSyncEngine";
 
 export type SyncActionResult =
-  | { ok: true; result: SyncResult }
+  | { ok: true; result: { jobsFetched: number; jobsInserted: number; duplicatesSkipped: number; matchesCreated: number } }
   | { ok: false; error: string };
 
 /**
- * Run full sync from primary sources (Greenhouse + Lever). Call from dashboard;
- * no API key required since this runs on the server.
+ * Run batch sync from all enabled boards (discovery engine). Call from dashboard.
  */
 export async function triggerSync(): Promise<SyncActionResult> {
   try {
-    const result = await runSyncAll();
-    return { ok: true, result };
+    const result = await runBatchSync();
+    return {
+      ok: true,
+      result: {
+        jobsFetched: result.totalFetched,
+        jobsInserted: result.totalSaved,
+        duplicatesSkipped: result.totalDuplicates,
+        matchesCreated: result.totalSaved
+      }
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };

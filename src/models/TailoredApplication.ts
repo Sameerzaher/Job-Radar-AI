@@ -29,12 +29,12 @@ const TailoredApplicationSchema = new Schema<ITailoredApplication>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     job: { type: Schema.Types.ObjectId, ref: "Job", required: true, index: true },
-    match: { type: Schema.Types.ObjectId, ref: "Match", required: true, index: true },
+    // Unique index for match is defined via TailoredApplicationSchema.index below
+    match: { type: Schema.Types.ObjectId, ref: "Match", required: true },
     status: {
       type: String,
       enum: ["draft", "generated", "approved", "used", "failed"],
-      default: "draft",
-      index: true
+      default: "draft"
     },
     resumeSummary: { type: String },
     suggestedBulletPoints: [{ type: String }],
@@ -50,7 +50,6 @@ const TailoredApplicationSchema = new Schema<ITailoredApplication>(
 );
 
 TailoredApplicationSchema.index({ match: 1 }, { unique: true });
-TailoredApplicationSchema.index({ status: 1 });
 
 export const TailoredApplication =
   models.TailoredApplication || model<ITailoredApplication>("TailoredApplication", TailoredApplicationSchema);

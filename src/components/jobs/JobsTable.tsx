@@ -20,7 +20,28 @@ type JobWithScore = IJob & {
   reasons: string[];
   matchedSkills?: string[];
   missingSkills?: string[];
+  matchId?: string;
+  applicationStatus?: string;
 };
+
+const APPLICATION_STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  queued: "Queued",
+  approved: "Approved",
+  applying: "Applying",
+  applied: "Applied",
+  ready_for_review: "Ready for review",
+  needs_review: "Needs review",
+  failed: "Failed",
+  rejected: "Rejected",
+  skipped_rules: "Skipped (rules)",
+  skipped_unsupported: "Skipped (unsupported)"
+};
+
+function getApplicationStatusLabel(status: string | undefined): string {
+  if (!status) return "New";
+  return APPLICATION_STATUS_LABELS[status] ?? status;
+}
 
 type JobsTableProps = {
   jobs: JobWithScore[];
@@ -101,6 +122,7 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
               <TableHeaderCell>Company</TableHeaderCell>
               <TableHeaderCell>Location</TableHeaderCell>
               <TableHeaderCell>Source</TableHeaderCell>
+              <TableHeaderCell>Apply</TableHeaderCell>
               <TableHeaderCell>Score</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="right" />
@@ -150,10 +172,29 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
                   </Badge>
                 </TableCell>
                 <TableCell>
+                  {(job as IJob & { autoApplySupported?: boolean }).autoApplySupported ? (
+                    <Badge variant="score-high">Auto</Badge>
+                  ) : (
+                    <Badge variant="score-mid">Manual</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
                   <ScoreBadge score={job.score} />
                 </TableCell>
                 <TableCell>
-                  <Badge variant="status">{job.status}</Badge>
+                  <Badge
+                    variant={
+                      job.applicationStatus === "applied"
+                        ? "score-high"
+                        : job.applicationStatus === "queued" || job.applicationStatus === "approved"
+                          ? "score-mid"
+                          : job.applicationStatus === "needs_review" || job.applicationStatus === "failed"
+                            ? "score-low"
+                            : "status"
+                    }
+                  >
+                    {getApplicationStatusLabel(job.applicationStatus)}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <JobRowActions job={job} onJobSelect={onJobSelect} />
@@ -210,7 +251,24 @@ export function JobsTable({ jobs, onJobSelect }: JobsTableProps) {
               >
                 {job.source}
               </Badge>
-              <Badge variant="status">{job.status}</Badge>
+              {(job as IJob & { autoApplySupported?: boolean }).autoApplySupported ? (
+                <Badge variant="score-high">Auto</Badge>
+              ) : (
+                <Badge variant="score-mid">Manual</Badge>
+              )}
+              <Badge
+                variant={
+                  job.applicationStatus === "applied"
+                    ? "score-high"
+                    : job.applicationStatus === "queued" || job.applicationStatus === "approved"
+                      ? "score-mid"
+                      : job.applicationStatus === "needs_review" || job.applicationStatus === "failed"
+                        ? "score-low"
+                        : "status"
+                }
+              >
+                {getApplicationStatusLabel(job.applicationStatus)}
+              </Badge>
             </div>
             <div className="mt-3 flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
               <JobRowActions job={job} onJobSelect={onJobSelect} />

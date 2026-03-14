@@ -11,7 +11,10 @@
     "ingest": "tsx scripts/ingest-sample-jobs.ts",
     "sync:cron": "tsx scripts/run-sync-cron.ts",
     "cleanup:jobs": "tsx scripts/cleanup-fake-jobs.ts",
-    "scraper:install": "playwright install chromium"
+    "cleanup:url-quality": "tsx scripts/cleanup-url-quality.ts",
+    "scraper:install": "playwright install chromium",
+    "worker:auto-apply": "tsx scripts/worker-auto-apply.ts",
+    "worker:auto-apply:dev": "tsx scripts/worker-auto-apply.ts"
   },
   "dependencies": {
     "mongoose": "^8.0.0",

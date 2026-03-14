@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { JobWithScore } from "@/services/jobService";
@@ -13,6 +14,25 @@ type JobDetailModalProps = {
   updateStatusAction: (jobId: string, status: JobStatus) => Promise<void>;
 };
 
+const APPLICATION_STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  queued: "Queued",
+  approved: "Approved",
+  applying: "Applying",
+  applied: "Applied",
+  ready_for_review: "Ready for review",
+  needs_review: "Needs review",
+  failed: "Failed",
+  rejected: "Rejected",
+  skipped_rules: "Skipped (rules)",
+  skipped_unsupported: "Skipped (unsupported)"
+};
+
+function getApplicationStatusLabel(status: string | undefined): string {
+  if (!status) return "New";
+  return APPLICATION_STATUS_LABELS[status] ?? status;
+}
+
 export function JobDetailModal({
   job,
   onClose,
@@ -20,11 +40,48 @@ export function JobDetailModal({
 }: JobDetailModalProps) {
   const router = useRouter();
   const id = job._id.toString();
+  const [applicationStatus, setApplicationStatus] = useState<string | undefined>(job.applicationStatus);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; success: boolean } | null>(null);
+
+  const canQueue =
+    job.source === "Greenhouse" &&
+    job.autoApplySupported === true &&
+    job.matchId &&
+    (applicationStatus === "new" || applicationStatus === "ready_for_review");
+  const isQueued = applicationStatus === "queued" || applicationStatus === "approved" || applicationStatus === "applying";
 
   async function handleStatus(status: JobStatus) {
     await updateStatusAction(id, status);
     router.refresh();
     onClose();
+  }
+
+  async function handleQueueForAutoApply() {
+    if (!job.matchId || queueLoading) return;
+    setQueueLoading(true);
+    try {
+      const res = await fetch("/api/apply/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: job.matchId })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setApplicationStatus("queued");
+        setToast({ message: "Job added to auto-apply queue", success: true });
+        setTimeout(() => setToast(null), 3000);
+        router.refresh();
+      } else {
+        setToast({ message: data.error ?? "Failed to queue", success: false });
+        setTimeout(() => setToast(null), 4000);
+      }
+    } catch {
+      setToast({ message: "Failed to queue", success: false });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setQueueLoading(false);
+    }
   }
 
   return (
@@ -45,6 +102,19 @@ export function JobDetailModal({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <ScoreBadge score={job.score} />
               <Badge variant="status">{job.status}</Badge>
+              <Badge
+                variant={
+                  applicationStatus === "applied"
+                    ? "score-high"
+                    : applicationStatus === "queued" || applicationStatus === "approved"
+                      ? "score-mid"
+                      : applicationStatus === "needs_review" || applicationStatus === "failed"
+                        ? "score-low"
+                        : "neutral"
+                }
+              >
+                {getApplicationStatusLabel(applicationStatus)}
+              </Badge>
               {job.source && (
                 <Badge
                   variant={
@@ -59,6 +129,17 @@ export function JobDetailModal({
                 </Badge>
               )}
             </div>
+            {toast && (
+              <div
+                className={`mt-3 rounded-ds-lg border px-3 py-2 text-sm ${
+                  toast.success
+                    ? "border-emerald-600/60 bg-emerald-900/30 text-emerald-200"
+                    : "border-amber-600/60 bg-amber-900/30 text-amber-200"
+                }`}
+              >
+                {toast.message}
+              </div>
+            )}
           </div>
           <Button
             type="button"
@@ -100,6 +181,22 @@ export function JobDetailModal({
         )}
 
         <div className="mt-6 flex flex-wrap gap-2 border-t border-slate-800/80 pt-5">
+          {canQueue && (
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={handleQueueForAutoApply}
+              disabled={queueLoading}
+            >
+              {queueLoading ? "Queueing…" : "Queue for auto-apply"}
+            </Button>
+          )}
+          {isQueued && (
+            <span className="inline-flex items-center rounded-ds-lg border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-400">
+              In auto-apply queue
+            </span>
+          )}
           <Button type="button" variant="primary" size="md" onClick={() => handleStatus("applied")}>
             Mark applied
           </Button>

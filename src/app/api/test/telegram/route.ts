@@ -1,18 +1,29 @@
 import { NextResponse } from "next/server";
-import { sendTelegramTestMessage } from "@/services/telegram";
+import { sendTelegramTestMessage, getTelegramDiagnostics } from "@/services/telegram";
 
 /**
  * GET /api/test/telegram
- * Send a test message to the configured Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
- * Returns success or error in the response.
+ * Send a real test message to the configured Telegram chat.
+ * Returns detailed JSON: config (token/chatId present), success/error, response body on failure.
  */
 export async function GET() {
+  const diagnostics = await getTelegramDiagnostics();
   const result = await sendTelegramTestMessage();
+
+  const body = {
+    configured: {
+      telegramConfigured: diagnostics.telegramConfigured,
+      tokenPresent: diagnostics.tokenPresent,
+      chatIdPresent: diagnostics.chatIdPresent
+    },
+    success: result.success,
+    ...(result.success
+      ? { message: "Test message sent to Telegram." }
+      : { error: result.error, responseBody: result.responseBody ?? undefined })
+  };
+
   if (result.success) {
-    return NextResponse.json({ success: true, message: "Test message sent to Telegram." });
+    return NextResponse.json(body);
   }
-  return NextResponse.json(
-    { success: false, error: result.error },
-    { status: 400 }
-  );
+  return NextResponse.json(body, { status: 400 });
 }

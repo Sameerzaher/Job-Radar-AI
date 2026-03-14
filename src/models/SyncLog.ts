@@ -25,7 +25,13 @@ const SyncLogSchema = new Schema<ISyncLog>(
     errors: [{ type: String }],
     sourceLabel: { type: String, required: true, default: "unknown" }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    // Mongoose reserves "errors" on documents; we intentionally store an "errors" array here
+    // and suppress the warning to avoid noisy logs.
+    // See https://mongoosejs.com/docs/8.x/docs/guide.html#suppressReservedKeysWarning
+    suppressReservedKeysWarning: true
+  } as unknown as undefined
 );
 
 SyncLogSchema.index({ createdAt: -1 });
