@@ -45,6 +45,8 @@ export interface IMatch extends Document {
   tailoredUsedInApply?: boolean;
   /** Set when match was manually or automatically queued for auto-apply. */
   queuedAt?: Date;
+  /** True when user manually overrode rules (skipped_rules → queued); worker skips rules engine for this match. */
+  rulesOverridden?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -82,7 +84,8 @@ const MatchSchema = new Schema<IMatch>(
     tailoredBulletPoints: [{ type: String }],
     tailoredCoverLetter: { type: String },
     tailoredUsedInApply: { type: Boolean, default: false },
-    queuedAt: { type: Date }
+    queuedAt: { type: Date },
+    rulesOverridden: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

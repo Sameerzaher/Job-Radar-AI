@@ -49,7 +49,14 @@ export function JobDetailModal({
     job.autoApplySupported === true &&
     job.matchId &&
     (applicationStatus === "new" || applicationStatus === "ready_for_review");
+  const canOverrideRules =
+    job.matchId &&
+    applicationStatus === "skipped_rules" &&
+    job.source === "Greenhouse" &&
+    job.autoApplySupported === true;
   const isQueued = applicationStatus === "queued" || applicationStatus === "approved" || applicationStatus === "applying";
+  const [overrideConfirmOpen, setOverrideConfirmOpen] = useState(false);
+  const [overrideLoading, setOverrideLoading] = useState(false);
 
   async function handleStatus(status: JobStatus) {
     await updateStatusAction(id, status);
@@ -84,6 +91,34 @@ export function JobDetailModal({
     }
   }
 
+  async function handleOverrideRulesAndQueue() {
+    if (!job.matchId || overrideLoading) return;
+    setOverrideConfirmOpen(false);
+    setOverrideLoading(true);
+    try {
+      const res = await fetch("/api/apply/override-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: job.matchId })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setApplicationStatus("queued");
+        setToast({ message: "Rules overridden; job sent to auto-apply queue", success: true });
+        setTimeout(() => setToast(null), 3000);
+        router.refresh();
+      } else {
+        setToast({ message: data.error ?? "Failed to override", success: false });
+        setTimeout(() => setToast(null), 4000);
+      }
+    } catch {
+      setToast({ message: "Failed to override", success: false });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setOverrideLoading(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
@@ -115,6 +150,11 @@ export function JobDetailModal({
               >
                 {getApplicationStatusLabel(applicationStatus)}
               </Badge>
+              {job.rulesOverridden && (
+                <Badge variant="neutral" className="border-amber-500/50 text-amber-200">
+                  Rules overridden
+                </Badge>
+              )}
               {job.source && (
                 <Badge
                   variant={
@@ -191,6 +231,40 @@ export function JobDetailModal({
             >
               {queueLoading ? "Queueing…" : "Queue for auto-apply"}
             </Button>
+          )}
+          {canOverrideRules && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setOverrideConfirmOpen(true)}
+              disabled={overrideLoading}
+            >
+              {overrideLoading ? "Sending…" : "Override rules and queue"}
+            </Button>
+          )}
+          {overrideConfirmOpen && (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+              onClick={() => setOverrideConfirmOpen(false)}
+            >
+              <div
+                className="ds-card max-w-sm p-5 shadow-soft"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p className="text-ds-body text-slate-200">
+                  Are you sure you want to override rules and send this job to auto-apply?
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <Button type="button" variant="primary" size="md" onClick={handleOverrideRulesAndQueue}>
+                    Yes, send to queue
+                  </Button>
+                  <Button type="button" variant="secondary" size="md" onClick={() => setOverrideConfirmOpen(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
           {isQueued && (
             <span className="inline-flex items-center rounded-ds-lg border border-slate-600 bg-slate-800/50 px-3 py-2 text-sm text-slate-400">

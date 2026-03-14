@@ -5,7 +5,7 @@
 
 import { connectToDatabase } from "@/lib/db";
 import { Match } from "@/models/Match";
-import { getRulesConfig, UNSUPPORTED_ROLE_SUBSTRINGS, PREFERRED_LOCATION_KEYWORDS } from "./rulesConfig";
+import { getRulesConfig, UNSUPPORTED_ROLE_SUBSTRINGS, PREFERRED_LOCATION_KEYWORDS, isSeniorLevelJob } from "./rulesConfig";
 
 const LOG_PREFIX = "[JobRadar] Rules:";
 
@@ -28,6 +28,7 @@ export type JobForRules = {
 
 export type MatchForRules = {
   missingSkills?: string[];
+  score?: number;
 };
 
 export type RulesSimulationContext = {
@@ -91,13 +92,21 @@ export async function evaluateJobForAutoApply(
     reasons.push(`Too many missing skills (${missingCount} > ${config.maxMissingSkills})`);
   }
 
-  // Unsupported role types: title contains certain substrings
+  // Unsupported role types: title contains certain substrings (Senior is NOT in the list; seniority never blocks)
   const titleLower = (job.title ?? "").toLowerCase();
   for (const sub of UNSUPPORTED_ROLE_SUBSTRINGS) {
     if (titleLower.includes(sub.toLowerCase())) {
       reasons.push(`Unsupported role type: "${sub}"`);
       break;
     }
+  }
+
+  // Seniority: never used for blocking. Senior-level jobs are eligible like any other; only score threshold (elsewhere) and the rules above apply.
+  const seniorLevel = isSeniorLevelJob(job);
+  if (seniorLevel) {
+    console.log(
+      `${LOG_PREFIX} seniority not blocking | title="${job.title ?? ""}" company="${job.company ?? ""}" (senior-level jobs allowed by policy)`
+    );
   }
 
   // Location: allow Israel, Remote; skip if location is outside preferred and not remote-like
@@ -112,6 +121,9 @@ export async function evaluateJobForAutoApply(
 
   const eligible = reasons.length === 0;
   const status: RuleEligibilityStatus = eligible ? "eligible" : "skipped_rules";
+  console.log(
+    `${LOG_PREFIX} evaluated | eligible=${eligible} reasons=[${reasons.join("; ") || "(none)"}] seniorityNeverBlocks=true`
+  );
   return { eligible, status, reasons };
 }
 

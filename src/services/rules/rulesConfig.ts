@@ -48,13 +48,30 @@ export function getRulesConfig(): RulesConfig {
   return cached;
 }
 
-/** Unsupported role title substrings (case-insensitive). */
+/** Unsupported role title substrings (case-insensitive). Senior is not listed here; senior-level jobs are allowed when score >= auto-apply threshold. */
 export const UNSUPPORTED_ROLE_SUBSTRINGS = [
   "Frontend only",
   "Designer",
   "QA",
   "Marketing"
 ] as const;
+
+/** True if job title indicates senior-level role (senior, lead, principal, staff, architect, head of), excluding junior/mid/entry. */
+export function isSeniorLevelJob(job: { title?: string | null }): boolean {
+  const text = (job.title ?? "").toLowerCase();
+  return /senior|lead|principal|staff|architect|head of/i.test(text) && !/junior|mid-level|mid level|entry/i.test(text);
+}
+
+/** True if failureReason indicates the match was skipped only due to seniority/senior-level rule (no longer used for blocking). */
+export function isSeniorityOnlyFailureReason(reason: string | null | undefined): boolean {
+  if (!reason || typeof reason !== "string") return false;
+  const r = reason.toLowerCase();
+  return (
+    r.includes("senior level role") ||
+    r.includes("above your level") ||
+    (r.includes("below auto-apply threshold") && r.includes("senior"))
+  );
+}
 
 /** Preferred role titles (for prioritization; not used to block). */
 export const PREFERRED_ROLES = ["Full Stack Developer", "Backend Developer"] as const;

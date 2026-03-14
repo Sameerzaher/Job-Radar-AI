@@ -271,29 +271,34 @@ export async function runAutoApply(
       continue;
     }
 
-    const ruleResult = await evaluateJobForAutoApply(user, job, m);
-    if (!ruleResult.eligible) {
-      if (verbose) console.log("[JobRadar] decision: skip – rules blocked |", ruleResult.reasons[0] ?? "rules not met", "|", job.title, job.company);
-      const failureReason = ruleResult.reasons[0] ?? "Rules not met";
-      await Match.updateOne(
-        { _id: m._id },
-        { $set: { applicationStatus: "skipped_rules", failureReason } }
-      );
-      result.skipped += 1;
-      result.skippedRules += 1;
-      result.results.push({
-        jobId: String(job._id),
-        title: job.title,
-        company: job.company,
-        source: job.source,
-        status: "skipped",
-        failureReason
-      });
+    const rulesOverridden = (m as { rulesOverridden?: boolean }).rulesOverridden === true;
+    if (rulesOverridden) {
+      if (verbose) console.log("[JobRadar] worker processing overridden job | rules bypassed |", job.title, job.company);
+    } else {
+      const ruleResult = await evaluateJobForAutoApply(user, job, m);
+      if (!ruleResult.eligible) {
+        if (verbose) console.log("[JobRadar] decision: skip – rules blocked |", ruleResult.reasons[0] ?? "rules not met", "|", job.title, job.company);
+        const failureReason = ruleResult.reasons[0] ?? "Rules not met";
+        await Match.updateOne(
+          { _id: m._id },
+          { $set: { applicationStatus: "skipped_rules", failureReason } }
+        );
+        result.skipped += 1;
+        result.skippedRules += 1;
+        result.results.push({
+          jobId: String(job._id),
+          title: job.title,
+          company: job.company,
+          source: job.source,
+          status: "skipped",
+          failureReason
+        });
+        logRuleDecision(job.title, job.company, ruleResult, verbose);
+        logGreenhouse(verbose, job.source, "blocked by rules", `${job.title} @ ${job.company} – ${ruleResult.reasons?.join("; ") ?? "rules"}`);
+        continue;
+      }
       logRuleDecision(job.title, job.company, ruleResult, verbose);
-      logGreenhouse(verbose, job.source, "blocked by rules", `${job.title} @ ${job.company} – ${ruleResult.reasons?.join("; ") ?? "rules"}`);
-      continue;
     }
-    logRuleDecision(job.title, job.company, ruleResult, verbose);
 
     logGreenhouse(verbose, job.source, "eligible", `${job.title} @ ${job.company}`);
     if (verbose) console.log("[JobRadar] decision: queued for apply", job.title, job.company, "| method:", method);

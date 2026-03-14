@@ -44,6 +44,8 @@ export interface JobWithScore extends IJob {
   matchId?: string;
   /** Application status from the match (new, queued, applied, etc.). */
   applicationStatus?: string;
+  /** True when user overrode rules and sent this match to queue. */
+  rulesOverridden?: boolean;
 }
 
 export async function getJobsWithScores(
@@ -101,20 +103,23 @@ export async function getJobsWithScores(
 
   const jobIds = withScores.map((j) => j._id);
   const matches = await Match.find({ user: user._id, job: { $in: jobIds } })
-    .select("_id job applicationStatus")
+    .select("_id job applicationStatus rulesOverridden")
     .lean();
-  const matchByJob = new Map<string, { matchId: string; applicationStatus: string }>();
+  const matchByJob = new Map<string, { matchId: string; applicationStatus: string; rulesOverridden?: boolean }>();
   for (const m of matches) {
     const jid = String((m as { job: unknown }).job);
     matchByJob.set(jid, {
       matchId: String((m as { _id: unknown })._id),
-      applicationStatus: (m as { applicationStatus?: string }).applicationStatus ?? "new"
+      applicationStatus: (m as { applicationStatus?: string }).applicationStatus ?? "new",
+      rulesOverridden: (m as { rulesOverridden?: boolean }).rulesOverridden
     });
   }
 
   return withScores.map((job) => {
     const extra = matchByJob.get(job._id.toString());
-    return extra ? { ...job, matchId: extra.matchId, applicationStatus: extra.applicationStatus } : job;
+    return extra
+      ? { ...job, matchId: extra.matchId, applicationStatus: extra.applicationStatus, rulesOverridden: extra.rulesOverridden }
+      : job;
   });
 }
 
@@ -480,7 +485,7 @@ export async function backfillApplicationStatusFromScore(userId: { _id: unknown 
           postedAt: job?.postedAt,
           foundAt: job?.foundAt
         },
-        { missingSkills: (m as { missingSkills?: string[] }).missingSkills }
+        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score: (m as { score?: number }).score }
       );
       if (!ruleResult.eligible) {
         finalStatus = "skipped_rules";
@@ -517,6 +522,109 @@ export async function backfillApplicationStatusFromScore(userId: { _id: unknown 
   return updated;
 }
 
+/**
+ * Re-evaluate matches that are skipped_rules only due to seniority (senior-level rule removed).
+ * Sets them to queued (if score+URL+rules allow) or ready_for_review, and clears failureReason.
+ */
+export async function recheckSkippedRulesMatchesForSeniority(userId: { _id: unknown }): Promise<{
+  updated: number;
+  queued: number;
+  readyForReview: number;
+}> {
+  await connectToDatabase();
+  const { isSeniorityOnlyFailureReason } = await import("@/services/rules/rulesConfig");
+  const {
+    resolveQueueStatusByUrl,
+    getAutoQueueIntendedStatus
+  } = await import("@/services/autoApply/queueEligibility");
+  const { evaluateJobForAutoApply } = await import("@/services/rules/rulesEngine");
+
+  const matches = await Match.find({
+    user: userId._id,
+    applicationStatus: "skipped_rules"
+  })
+    .populate("job")
+    .lean();
+
+  let updated = 0;
+  let queued = 0;
+  let readyForReview = 0;
+  for (const m of matches) {
+    const reason = (m as { failureReason?: string | null }).failureReason;
+    if (!isSeniorityOnlyFailureReason(reason)) continue;
+
+    const job = m.job as unknown as {
+      _id: unknown;
+      source?: string;
+      title?: string;
+      company?: string;
+      location?: string;
+      url?: string;
+      externalUrl?: string;
+      autoApplySupported?: boolean;
+      postedAt?: Date | null;
+      foundAt?: Date | null;
+    };
+    if (!job) continue;
+
+    const score = (m as { score: number }).score;
+    const intendedStatus = getAutoQueueIntendedStatus(
+      { source: job.source ?? "", autoApplySupported: job.autoApplySupported },
+      score
+    );
+    const resolved = resolveQueueStatusByUrl(
+      {
+        source: job.source ?? "",
+        url: job.url,
+        externalUrl: job.externalUrl,
+        autoApplySupported: job.autoApplySupported
+      },
+      intendedStatus
+    );
+
+    let finalStatus = resolved.applicationStatus;
+    let queuedAt: Date | null = null;
+    if (resolved.applicationStatus === "queued") {
+      const ruleResult = await evaluateJobForAutoApply(
+        userId,
+        {
+          _id: job._id,
+          company: job.company ?? "",
+          title: job.title ?? "",
+          location: job.location ?? "",
+          postedAt: job.postedAt,
+          foundAt: job.foundAt
+        },
+        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score }
+      );
+      if (ruleResult.eligible) {
+        finalStatus = "queued";
+        queuedAt = new Date();
+        queued += 1;
+      } else {
+        finalStatus = "ready_for_review";
+        readyForReview += 1;
+      }
+    } else {
+      readyForReview += 1;
+    }
+
+    const update: Record<string, unknown> = {
+      applicationStatus: finalStatus,
+      failureReason: null
+    };
+    if (queuedAt) update.queuedAt = queuedAt;
+    await Match.updateOne({ _id: m._id }, { $set: update });
+    updated += 1;
+  }
+  if (updated > 0) {
+    console.log(
+      `[JobRadar] recheckSkippedRulesMatchesForSeniority | updated=${updated} queued=${queued} ready_for_review=${readyForReview}`
+    );
+  }
+  return { updated, queued, readyForReview };
+}
+
 export type ReviewQueueItem = {
   matchId: string;
   jobId: string;
@@ -532,6 +640,8 @@ export type ReviewQueueItem = {
   autoApplySupported?: boolean;
   /** URL quality from ingestion. */
   urlClassification?: string;
+  /** True when user overrode rules and sent this match to queue. */
+  rulesOverridden?: boolean;
 };
 
 export type ReviewQueueFilter = {
@@ -598,10 +708,69 @@ export async function getReviewQueueItems(
       jobUrl: getValidJobUrl(job),
       applicationStatus: m.applicationStatus ?? "new",
       autoApplySupported: job.autoApplySupported,
-      urlClassification: job.urlClassification
+      urlClassification: job.urlClassification,
+      rulesOverridden: (m as { rulesOverridden?: boolean }).rulesOverridden === true
     });
   }
   return items;
+}
+
+/**
+ * Manually override rules and move a skipped_rules match back to the auto-apply queue.
+ * Requires supported URL and provider; does not bypass URL/provider safety.
+ */
+export async function overrideRulesAndQueue(matchId: string, userId: { _id: unknown }): Promise<{ ok: boolean; error?: string }> {
+  await connectToDatabase();
+  if (!mongoose.Types.ObjectId.isValid(matchId)) {
+    return { ok: false, error: "Invalid match ID" };
+  }
+  const match = await Match.findOne({
+    _id: matchId,
+    user: userId._id,
+    applicationStatus: "skipped_rules"
+  })
+    .populate("job")
+    .lean();
+  if (!match) {
+    return { ok: false, error: "Match not found or not skipped by rules" };
+  }
+  const job = match.job as unknown as {
+    _id: unknown;
+    source?: string;
+    title?: string;
+    company?: string;
+    autoApplySupported?: boolean;
+    urlClassification?: string;
+  };
+  if (!job) {
+    return { ok: false, error: "Job not found" };
+  }
+  if (job.autoApplySupported !== true) {
+    return { ok: false, error: "This job cannot be auto-applied (unsupported URL)" };
+  }
+  if (job.urlClassification !== "supported_apply_url") {
+    return { ok: false, error: "This job cannot be auto-applied (unsupported URL)" };
+  }
+
+  const now = new Date();
+  await Match.updateOne(
+    { _id: matchId, user: userId._id },
+    { $set: { applicationStatus: "queued", failureReason: null, rulesOverridden: true, queuedAt: now } }
+  );
+  console.log(
+    "[JobRadar] manual override applied | matchId=%s job=%s @ %s – job moved from skipped_rules to queued",
+    matchId,
+    job.title ?? "",
+    job.company ?? ""
+  );
+  await logActivity({
+    type: "apply",
+    status: "info",
+    message: "Rules overridden; job sent to queue",
+    matchId,
+    details: { title: job.title, company: job.company }
+  });
+  return { ok: true };
 }
 
 export async function approveMatch(matchId: string, userId: { _id: unknown }): Promise<boolean> {

@@ -26,7 +26,7 @@ Only **Greenhouse** is auto-queued automatically; Lever and Workable remain `rea
 - **Provider** – Source is not Greenhouse (e.g. Lever, Workable).
 - **Unsupported URL** – `urlClassification !== "supported_apply_url"` or `autoApplySupported !== true`.
 - **Low score** – `match.score < AUTO_APPLY_SCORE_THRESHOLD`.
-- **Rules** – Company cooldown, job too old, missing skills, or other rule reasons (status set to `skipped_rules` with a failure reason).
+- **Rules** – Company cooldown, job too old, missing skills, unsupported role type, location (status set to `skipped_rules` with a failure reason). **Seniority is not a rule:** senior-level jobs are never blocked by rules; only score threshold (and the above rules) apply.
 - **Status** – Already `queued`, `applied`, `failed`, `skipped_*`, etc.
 
 ## Changing the threshold

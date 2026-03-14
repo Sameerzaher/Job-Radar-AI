@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { SectionCard, Button, Badge } from "@/components/ui";
@@ -19,6 +20,8 @@ export function ReviewQueueList({
   retryAction
 }: ReviewQueueListProps) {
   const router = useRouter();
+  const [overrideMatchId, setOverrideMatchId] = useState<string | null>(null);
+  const [overrideLoading, setOverrideLoading] = useState(false);
 
   async function handleApprove(matchId: string) {
     await approveAction(matchId);
@@ -31,6 +34,22 @@ export function ReviewQueueList({
   async function handleRetry(matchId: string) {
     await retryAction(matchId);
     router.refresh();
+  }
+
+  async function handleOverrideRulesAndQueue(matchId: string) {
+    setOverrideMatchId(null);
+    setOverrideLoading(true);
+    try {
+      const res = await fetch("/api/apply/override-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId })
+      });
+      const data = await res.json();
+      if (data.ok) router.refresh();
+    } finally {
+      setOverrideLoading(false);
+    }
   }
 
   if (!items.length) {
@@ -79,6 +98,11 @@ export function ReviewQueueList({
                   >
                     {item.applicationStatus}
                   </Badge>
+                  {item.rulesOverridden && (
+                    <Badge variant="neutral" className="border-amber-500/50 text-amber-200">
+                      Rules overridden
+                    </Badge>
+                  )}
                 </div>
                 {item.reasons.length > 0 && (
                   <ul className="mt-2 list-inside list-disc text-ds-caption text-slate-400">
@@ -106,6 +130,17 @@ export function ReviewQueueList({
                   onClick={() => handleApprove(item.matchId)}
                 >
                   Approve
+                </Button>
+              )}
+              {item.applicationStatus === "skipped_rules" && item.autoApplySupported && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setOverrideMatchId(item.matchId)}
+                  disabled={overrideLoading}
+                >
+                  {overrideLoading && overrideMatchId === item.matchId ? "Sending…" : "Override rules and queue"}
                 </Button>
               )}
               <Button
@@ -152,6 +187,34 @@ export function ReviewQueueList({
           </li>
         ))}
       </ul>
+      {overrideMatchId && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setOverrideMatchId(null)}
+        >
+          <div
+            className="ds-card max-w-sm p-5 shadow-soft"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-ds-body text-slate-200">
+              Are you sure you want to override rules and send this job to auto-apply?
+            </p>
+            <div className="mt-4 flex gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => handleOverrideRulesAndQueue(overrideMatchId)}
+              >
+                Yes, send to queue
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setOverrideMatchId(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </SectionCard>
   );
 }

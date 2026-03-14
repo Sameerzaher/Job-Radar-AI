@@ -103,6 +103,7 @@ export async function ingestJob(
         let finalFailureReason = resolved.failureReason ?? null;
         let queuedAt: Date | null = null;
         if (resolved.applicationStatus === "queued") {
+          const matchScore = (match as { score?: number }).score;
           const ruleResult = await evaluateJobForAutoApply(
             user,
             {
@@ -113,7 +114,7 @@ export async function ingestJob(
               postedAt: updatedJob.postedAt,
               foundAt: updatedJob.foundAt
             },
-            { missingSkills: match.missingSkills }
+            { missingSkills: match.missingSkills, score: matchScore }
           );
           if (!ruleResult.eligible) {
             finalStatus = "skipped_rules";
@@ -149,7 +150,7 @@ export async function ingestJob(
               postedAt: updatedJob.postedAt,
               foundAt: updatedJob.foundAt
             },
-            { missingSkills: missingSkills }
+            { missingSkills: missingSkills, score }
           );
           if (!ruleResult.eligible) {
             createStatus = "skipped_rules";
@@ -225,7 +226,7 @@ export async function ingestJob(
         postedAt: job.postedAt,
         foundAt: job.foundAt
       },
-      { missingSkills: missingSkills }
+      { missingSkills: missingSkills, score }
     );
     if (!ruleResult.eligible) {
       applicationStatus = "skipped_rules";

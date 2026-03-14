@@ -90,7 +90,7 @@ export async function autoQueueEligibleMatch(
       postedAt: job.postedAt,
       foundAt: job.foundAt
     },
-    { missingSkills: match.missingSkills }
+    { missingSkills: match.missingSkills, score: match.score }
   );
 
   if (!ruleResult.eligible) {
