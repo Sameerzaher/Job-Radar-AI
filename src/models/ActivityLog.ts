@@ -1,6 +1,6 @@
 import { Schema, model, models, type Document, type Types } from "mongoose";
 
-export type ActivityLogType = "sync" | "apply" | "review" | "telegram" | "tailoring";
+export type ActivityLogType = "sync" | "apply" | "review" | "telegram" | "tailoring" | "digest";
 export type ActivityLogStatus = "started" | "success" | "failed" | "skipped" | "info";
 
 export interface IActivityLog extends Document {
@@ -16,7 +16,7 @@ export interface IActivityLog extends Document {
 
 const ActivityLogSchema = new Schema<IActivityLog>(
   {
-    type: { type: String, required: true, enum: ["sync", "apply", "review", "telegram", "tailoring"], index: true },
+    type: { type: String, required: true, enum: ["sync", "apply", "review", "telegram", "tailoring", "digest"], index: true },
     source: { type: String, index: true },
     jobId: { type: Schema.Types.ObjectId, ref: "Job" },
     matchId: { type: Schema.Types.ObjectId, ref: "Match" },

@@ -21,6 +21,9 @@ export interface ITailoredApplication extends Document {
   aiModel?: string;
   generatedAt?: Date;
   failureReason?: string | null;
+  /** Apply profile used for this tailoring (when using Apply Profiles feature). */
+  applyProfileId?: Types.ObjectId;
+  applyProfileName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,7 +47,9 @@ const TailoredApplicationSchema = new Schema<ITailoredApplication>(
     recruiterMessage: { type: String },
     aiModel: { type: String },
     generatedAt: { type: Date },
-    failureReason: { type: String }
+    failureReason: { type: String },
+    applyProfileId: { type: Schema.Types.ObjectId, ref: "ApplyProfile" },
+    applyProfileName: { type: String }
   },
   { timestamps: true }
 );

@@ -3,19 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const navItems = [
+const navItems: { href: string; label: string; exact?: boolean }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/jobs", label: "Jobs" },
   { href: "/review", label: "Review" },
   { href: "/tailored", label: "Tailored" },
+  { href: "/apply-profiles", label: "Apply profiles", exact: false },
   { href: "/sources", label: "Sources" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/profile", label: "Profile" }
 ];
 
-function NavLink({ href, label }: { href: string; label: string }) {
+function NavLink({ href, label, exact = true }: { href: string; label: string; exact?: boolean }) {
   const pathname = usePathname();
-  const active = pathname === href;
+  const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
 
   return (
     <Link
@@ -44,7 +45,7 @@ export function Sidebar() {
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
         {navItems.map((item) => (
-          <NavLink key={item.href} href={item.href} label={item.label} />
+          <NavLink key={item.href} href={item.href} label={item.label} exact={item.exact} />
         ))}
       </nav>
     </aside>

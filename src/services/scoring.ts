@@ -1,8 +1,8 @@
 import type { IJob } from "@/models/Job";
-import type { IUser } from "@/models/User";
+import type { IUser, ScoreWeights } from "@/models/User";
 import { getJobKeywords } from "./scoring/keywordExtraction";
 
-/** Points per category (as specified) */
+/** Base points per category (before user weights). */
 const POINTS = {
   TITLE_MATCH: 25,
   SKILL_MATCH_EACH: 10,
@@ -11,6 +11,20 @@ const POINTS = {
   REMOTE_MATCH: 10,
   SENIORITY_MATCH: 10
 } as const;
+
+const DEFAULT_WEIGHT = 100;
+
+function getWeights(user: IUser): Required<ScoreWeights> {
+  const w = (user as IUser & { scoreWeights?: ScoreWeights }).scoreWeights ?? {};
+  const clamp = (v: number) => Math.max(0, Math.min(200, Number.isFinite(v) ? v : DEFAULT_WEIGHT));
+  return {
+    titleMatch: clamp(w.titleMatch ?? DEFAULT_WEIGHT),
+    skillMatch: clamp(w.skillMatch ?? DEFAULT_WEIGHT),
+    locationMatch: clamp(w.locationMatch ?? DEFAULT_WEIGHT),
+    remoteMatch: clamp(w.remoteMatch ?? DEFAULT_WEIGHT),
+    seniorityMatch: clamp(w.seniorityMatch ?? DEFAULT_WEIGHT)
+  };
+}
 
 /** Penalties */
 const PENALTY = {
@@ -53,7 +67,7 @@ function jobText(job: IJob): string {
 
 export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
   const reasons: string[] = [];
-  let score = 0;
+  const weights = getWeights(user);
 
   const jobKeywords = getJobKeywords(job);
   const userSkills = (user.skills ?? []).map((s) => s.trim()).filter(Boolean);
@@ -66,6 +80,13 @@ export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
   );
   const missingUnique = [...new Set(missingSkills)].slice(0, 15);
 
+  // --- Raw points per category (before weights)
+  let titlePoints = 0;
+  let skillPoints = 0;
+  let locationPoints = 0;
+  let remotePoints = 0;
+  let seniorityPoints = 0;
+
   // --- Title match (25)
   const targetRoles = user.targetRoles ?? [];
   const titleLower = (job.title ?? "").toLowerCase();
@@ -74,14 +95,14 @@ export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
     return first && titleLower.includes(first);
   });
   if (titleMatch) {
-    score += POINTS.TITLE_MATCH;
+    titlePoints = POINTS.TITLE_MATCH;
     reasons.push(`Title matches target role`);
   }
 
   // --- Skill match (10 each, cap at 5 skills)
   const skillCount = Math.min(matchedSkills.length, POINTS.SKILL_MATCH_CAP);
   if (skillCount > 0) {
-    score += skillCount * POINTS.SKILL_MATCH_EACH;
+    skillPoints = skillCount * POINTS.SKILL_MATCH_EACH;
     reasons.push(`Skill match: ${matchedSkills.slice(0, POINTS.SKILL_MATCH_CAP).join(", ")}`);
   }
 
@@ -91,7 +112,7 @@ export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
     (job.location ?? "").toLowerCase().includes(loc.toLowerCase())
   );
   if (locationHit) {
-    score += POINTS.LOCATION_MATCH;
+    locationPoints = POINTS.LOCATION_MATCH;
     reasons.push(`Preferred location: ${job.location}`);
   }
 
@@ -103,7 +124,7 @@ export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
     /remote|hybrid/i.test(job.location ?? "") ||
     (Array.isArray(job.tags) && job.tags.some((t) => /remote|hybrid/i.test(t)));
   if (remoteLike && (user.workModes ?? []).includes("Remote")) {
-    score += POINTS.REMOTE_MATCH;
+    remotePoints = POINTS.REMOTE_MATCH;
     reasons.push("Supports remote work");
   }
 
@@ -112,41 +133,58 @@ export function scoreJobForUser(job: IJob, user: IUser): MatchScore {
   const jobWantsSenior = jobAsksForSeniorLevel(job);
   const jobWantsJuniorOrMid = /junior|mid-level|mid level|entry/i.test((job.title ?? "") + (job.description ?? ""));
   if (jobWantsSenior && userLevel >= 4) {
-    score += POINTS.SENIORITY_MATCH;
+    seniorityPoints = POINTS.SENIORITY_MATCH;
     reasons.push("Seniority aligned (senior)");
   } else if (jobWantsJuniorOrMid && (userLevel <= 2 || user.seniority === "junior-mid")) {
-    score += POINTS.SENIORITY_MATCH;
+    seniorityPoints = POINTS.SENIORITY_MATCH;
     reasons.push("Seniority aligned (junior–mid)");
   } else if (!jobWantsSenior && userLevel <= 3) {
-    score += POINTS.SENIORITY_MATCH;
+    seniorityPoints = POINTS.SENIORITY_MATCH;
     reasons.push("Seniority aligned");
   }
 
-  // --- Penalty: senior role beyond user level
+  // --- Penalties (unweighted)
+  let penalty = 0;
   if (jobWantsSenior && userLevel < 4) {
-    score -= PENALTY.SENIOR_BEYOND_LEVEL;
+    penalty += PENALTY.SENIOR_BEYOND_LEVEL;
     reasons.push("Job targets senior level (above your level)");
   }
-
-  // --- Penalty: excluded keywords
   const excluded = (user as IUser & { excludedKeywords?: string[] }).excludedKeywords ?? [];
   const text = jobText(job);
   const foundExcluded = excluded.filter(
     (kw) => kw && text.includes(kw.trim().toLowerCase())
   );
   if (foundExcluded.length > 0) {
-    const penalty = Math.min(
+    penalty += Math.min(
       foundExcluded.length * PENALTY.EXCLUDED_KEYWORD_EACH,
       PENALTY.EXCLUDED_KEYWORD_CAP
     );
-    score -= penalty;
     reasons.push(`Excluded keywords in job: ${foundExcluded.join(", ")}`);
   }
 
-  score = Math.max(0, Math.min(100, score));
+  // --- Apply weights and normalize to 0–100
+  const w = (v: number, weight: number) => (v * weight) / DEFAULT_WEIGHT;
+  const weightedSum =
+    w(titlePoints, weights.titleMatch) +
+    w(skillPoints, weights.skillMatch) +
+    w(locationPoints, weights.locationMatch) +
+    w(remotePoints, weights.remoteMatch) +
+    w(seniorityPoints, weights.seniorityMatch);
+  const maxWeighted =
+    w(POINTS.TITLE_MATCH, weights.titleMatch) +
+    w(POINTS.SKILL_MATCH_CAP * POINTS.SKILL_MATCH_EACH, weights.skillMatch) +
+    w(POINTS.LOCATION_MATCH, weights.locationMatch) +
+    w(POINTS.REMOTE_MATCH, weights.remoteMatch) +
+    w(POINTS.SENIORITY_MATCH, weights.seniorityMatch);
+  const rawScore = weightedSum - penalty;
+  const score =
+    maxWeighted > 0
+      ? Math.round((rawScore / maxWeighted) * 100)
+      : 0;
+  const scoreClamped = Math.max(0, Math.min(100, score));
 
   return {
-    score,
+    score: scoreClamped,
     reasons,
     matchedSkills: [...new Set(matchedSkills)],
     missingSkills: missingUnique

@@ -15,6 +15,8 @@ import {
   type TailorApplicationOutput
 } from "@/services/ai/tailorApplication";
 import { logActivity } from "./activityLogger";
+import { selectBestApplyProfile } from "@/services/applyProfiles/selectApplyProfile";
+import { getApplyProfileById } from "@/services/applyProfiles/applyProfileService";
 
 export interface TailoredApplicationWithJob extends ITailoredApplication {
   job: IJob;
@@ -179,7 +181,28 @@ export async function runTailoringGeneration(
   if (!user || !match || !job) return { tailored: null, generated: false };
 
   const config = getTailoringConfig();
-  const input = buildTailorInput(user as IUser, job, match);
+  const matchWithOverride = match as IMatch & { selectedApplyProfileId?: unknown; applyProfileId?: unknown };
+  let applyProfileForTailor: { resumeText?: string; coverLetterTemplate?: string } | null = null;
+  let applyProfileIdToSet: string | null = null;
+  let applyProfileNameToSet: string | null = null;
+  const overrideId = matchWithOverride.selectedApplyProfileId ?? matchWithOverride.applyProfileId;
+  if (overrideId) {
+    const profile = await getApplyProfileById(String(overrideId), userId);
+    if (profile) {
+      applyProfileForTailor = { resumeText: profile.resumeText, coverLetterTemplate: profile.coverLetterTemplate };
+      applyProfileIdToSet = String(profile._id);
+      applyProfileNameToSet = profile.name;
+    }
+  }
+  if (!applyProfileForTailor) {
+    const sel = await selectBestApplyProfile(user as IUser, job, match);
+    if (sel.selectedProfile) {
+      applyProfileForTailor = { resumeText: sel.selectedProfile.resumeText, coverLetterTemplate: sel.selectedProfile.coverLetterTemplate };
+      applyProfileIdToSet = String(sel.selectedProfile._id);
+      applyProfileNameToSet = sel.selectedProfile.name;
+    }
+  }
+  const input = buildTailorInput(user as IUser, job, match, applyProfileForTailor);
 
   let output: TailorApplicationOutput;
   let aiModel: string | undefined;
@@ -212,6 +235,10 @@ export async function runTailoringGeneration(
   tailored.generatedAt = new Date();
   tailored.status = "generated";
   tailored.failureReason = undefined;
+  if (applyProfileIdToSet && mongoose.Types.ObjectId.isValid(applyProfileIdToSet)) {
+    (tailored as { applyProfileId?: mongoose.Types.ObjectId }).applyProfileId = new mongoose.Types.ObjectId(applyProfileIdToSet);
+  }
+  if (applyProfileNameToSet) tailored.applyProfileName = applyProfileNameToSet;
   await tailored.save();
 
   await logActivity({

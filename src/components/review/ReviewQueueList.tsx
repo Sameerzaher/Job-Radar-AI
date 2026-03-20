@@ -77,6 +77,21 @@ export function ReviewQueueList({
                 <p className="text-ds-caption text-slate-500">
                   {item.company} · {item.source}
                 </p>
+                {item.applyProfileName && (
+                  <p className="mt-1 text-xs text-slate-400">Apply profile: {item.applyProfileName}</p>
+                )}
+                {item.companyMemory && (
+                  <div className="mt-2 rounded border border-slate-600/60 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+                    <span className="font-medium text-slate-300">Company history:</span>
+                    {" "}
+                    {item.companyMemory.lastAppliedAt
+                      ? `Last applied ${new Date(item.companyMemory.lastAppliedAt).toLocaleDateString(undefined, { dateStyle: "short" })}`
+                      : "No prior applications"}
+                    {item.companyMemory.lastOutcome && ` · ${item.companyMemory.lastOutcome}`}
+                    {item.companyMemory.lastApplyProfileName && ` · profile: ${item.companyMemory.lastApplyProfileName}`}
+                    {item.companyMemory.totalApplications > 0 && ` · ${item.companyMemory.totalApplications} total`}
+                  </div>
+                )}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge variant="source">{item.source}</Badge>
                   <Badge variant="neutral">Score: {item.score}</Badge>

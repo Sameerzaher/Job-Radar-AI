@@ -5,9 +5,11 @@
 
 import { connectToDatabase } from "@/lib/db";
 import { Match } from "@/models/Match";
+import { User } from "@/models/User";
 import { getApplyConfig } from "@/config/applyConfig";
 import { evaluateJobForAutoApply } from "@/services/rules/rulesEngine";
 import { logActivity } from "@/services/activityLogger";
+import { recordApplicationOutcome } from "@/services/companyMemory/companyMemoryService";
 
 const LOG = "[JobRadar] AutoQueue:";
 
@@ -46,12 +48,14 @@ type MatchForAutoQueue = {
 
 /**
  * Check if a single match is eligible and, if so, set applicationStatus = "queued" and queuedAt = now.
- * Only Greenhouse; verifies supported URL, threshold, and rules (including company cooldown).
+ * Only Greenhouse; verifies supported URL, threshold, and rules (including company cooldown and blacklist).
+ * When company is in reviewRequired list, sets ready_for_review instead of queued.
  */
 export async function autoQueueEligibleMatch(
   match: MatchForAutoQueue,
   job: JobForAutoQueue | null,
-  userId: { _id: unknown }
+  userId: { _id: unknown },
+  companyLists?: { blacklist: string[]; reviewRequired: string[] }
 ): Promise<AutoQueueResult> {
   if (!job) return { queued: false, reason: "unsupported_url" };
 
@@ -90,7 +94,9 @@ export async function autoQueueEligibleMatch(
       postedAt: job.postedAt,
       foundAt: job.foundAt
     },
-    { missingSkills: match.missingSkills, score: match.score }
+    { missingSkills: match.missingSkills, score: match.score },
+    undefined,
+    { companyBlacklist: companyLists?.blacklist }
   );
 
   if (!ruleResult.eligible) {
@@ -106,7 +112,30 @@ export async function autoQueueEligibleMatch(
         }
       }
     );
+    await recordApplicationOutcome({
+      userId: userId._id,
+      companyName: job.company ?? "",
+      jobTitle: job.title ?? "",
+      outcome: "skipped_rules"
+    });
     return { queued: false, reason: "rules" };
+  }
+
+  const companyLower = (job.company ?? "").trim().toLowerCase();
+  const reviewRequiredSet = new Set(
+    (companyLists?.reviewRequired ?? []).map((c) => String(c).trim().toLowerCase()).filter(Boolean)
+  );
+  const requiresReview = companyLower && reviewRequiredSet.has(companyLower);
+
+  if (requiresReview) {
+    await Match.updateOne(
+      { _id: match._id },
+      { $set: { applicationStatus: "ready_for_review", failureReason: null } }
+    );
+    console.log(
+      `${LOG} auto-queue → ready_for_review (company in review-required list) | title=${job.title ?? "—"} company=${job.company ?? "—"}`
+    );
+    return { queued: false, reason: "status" };
   }
 
   const now = new Date();
@@ -134,6 +163,12 @@ export async function autoQueueEligibleMatches(userId: { _id: unknown }): Promis
     skippedByStatus: 0
   };
 
+  const user = await User.findById(userId._id).lean();
+  const companyLists = {
+    blacklist: (user as { autoApplyBlacklistCompanies?: string[] })?.autoApplyBlacklistCompanies ?? [],
+    reviewRequired: (user as { autoApplyReviewRequiredCompanies?: string[] })?.autoApplyReviewRequiredCompanies ?? []
+  };
+
   const matches = await Match.find({
     user: userId._id,
     applicationStatus: { $in: ["new", "ready_for_review"] }
@@ -144,7 +179,7 @@ export async function autoQueueEligibleMatches(userId: { _id: unknown }): Promis
   for (const m of matches) {
     const job = m.job as unknown as JobForAutoQueue;
     const match = m as unknown as MatchForAutoQueue;
-    const r = await autoQueueEligibleMatch(match, job, userId);
+    const r = await autoQueueEligibleMatch(match, job, userId, companyLists);
     if (r.queued) result.queued += 1;
     else {
       if (r.reason === "rules") result.skippedByRules += 1;

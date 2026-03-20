@@ -32,8 +32,36 @@ export interface IUser extends Document {
   /** Server path to resume file for upload (e.g. /app/data/resume.pdf) */
   resumeFilePath?: string;
   defaultCoverLetter?: string;
+  /** Saved filter presets for the jobs page (name + query params). */
+  savedSearches?: SavedSearchEntry[];
+  /** Per-dimension weights for scoring (100 = default). 0–200. Higher = dimension matters more. */
+  scoreWeights?: ScoreWeights;
+  /** Company names to never auto-apply to (case-insensitive match). */
+  autoApplyBlacklistCompanies?: string[];
+  /** Company names that always require manual review before applying (never auto-queue). */
+  autoApplyReviewRequiredCompanies?: string[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ScoreWeights {
+  /** Title/role match (default 100). */
+  titleMatch?: number;
+  /** Skill match (default 100). */
+  skillMatch?: number;
+  /** Location match (default 100). */
+  locationMatch?: number;
+  /** Remote/work mode match (default 100). */
+  remoteMatch?: number;
+  /** Seniority match (default 100). */
+  seniorityMatch?: number;
+}
+
+export interface SavedSearchEntry {
+  _id?: string;
+  name: string;
+  /** Query params as stored (minScore, source, status, location, sortBy, autoApply, remoteOnly, seniority). */
+  filters: Record<string, string | number | boolean>;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -61,7 +89,22 @@ const UserSchema = new Schema<IUser>(
     githubUrl: { type: String },
     portfolioUrl: { type: String },
     resumeFilePath: { type: String },
-    defaultCoverLetter: { type: String }
+    defaultCoverLetter: { type: String },
+    savedSearches: [
+      {
+        name: { type: String, required: true },
+        filters: { type: Schema.Types.Mixed, default: {} }
+      }
+    ],
+    scoreWeights: {
+      titleMatch: { type: Number },
+      skillMatch: { type: Number },
+      locationMatch: { type: Number },
+      remoteMatch: { type: Number },
+      seniorityMatch: { type: Number }
+    },
+    autoApplyBlacklistCompanies: [{ type: String }],
+    autoApplyReviewRequiredCompanies: [{ type: String }]
   },
   { timestamps: true }
 );

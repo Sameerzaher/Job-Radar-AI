@@ -183,11 +183,18 @@ export function buildFallbackTailoring(
   };
 }
 
-/** Build TailorApplicationInput from user, job, and match (for use by callers). */
+/** Optional apply profile to use for resume/cover template (when using Apply Profiles feature). */
+export type ApplyProfileForTailor = {
+  resumeText?: string;
+  coverLetterTemplate?: string;
+};
+
+/** Build TailorApplicationInput from user, job, and match (for use by callers). Optionally use applyProfile resume/template. */
 export function buildTailorInput(
   user: IUser,
   job: { title?: string; company?: string; location?: string; description?: string },
-  match: { reasons?: string[]; matchedSkills?: string[]; missingSkills?: string[] }
+  match: { reasons?: string[]; matchedSkills?: string[]; missingSkills?: string[] },
+  applyProfile?: ApplyProfileForTailor | null
 ): TailorApplicationInput {
   const u = user as IUser & {
     baseResumeText?: string;
@@ -197,7 +204,10 @@ export function buildTailorInput(
     achievements?: string[];
     workModes?: string[];
   };
-  const baseResume = (u.baseResumeText ?? u.resumeText ?? "").trim();
+  const baseResume = applyProfile?.resumeText?.trim()
+    ?? (u.baseResumeText ?? u.resumeText ?? "").trim();
+  const defaultCoverLetterTemplate = applyProfile?.coverLetterTemplate?.trim()
+    ?? u.defaultCoverLetterTemplate;
   return {
     userProfile: {
       name: u.name,
@@ -207,7 +217,7 @@ export function buildTailorInput(
       preferredLocations: u.preferredLocations ?? [],
       workModes: u.workModes ?? [],
       baseResumeText: baseResume || "(No resume provided)",
-      defaultCoverLetterTemplate: u.defaultCoverLetterTemplate,
+      defaultCoverLetterTemplate,
       yearsOfExperience: u.yearsOfExperience,
       keyProjects: u.keyProjects ?? [],
       achievements: u.achievements ?? []

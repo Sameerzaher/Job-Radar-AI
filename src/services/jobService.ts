@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { Job, type IJob, type JobStatus } from "@/models/Job";
 import { Match, type IMatch } from "@/models/Match";
-import type { IUser } from "@/models/User";
+import { User, type IUser } from "@/models/User";
 import { getApplyConfig, getApplicationStatusFromScore, getWorkerConfig } from "@/config/applyConfig";
 import { scoreJobForUser } from "./scoring";
 import { analyzeJobWithAI } from "./aiJobAnalysis";
@@ -15,6 +15,8 @@ const HIGH_MATCH_SCORE_THRESHOLD = 80;
 
 export type SortBy = "score-desc" | "score-asc" | "newest";
 
+export type SeniorityFilter = "junior" | "mid" | "senior";
+
 export interface JobFilters {
   minScore?: number;
   source?: string;
@@ -25,14 +27,18 @@ export interface JobFilters {
   company?: string;
   /** Filter by provider/source (e.g. Greenhouse, Lever). */
   provider?: string;
-  /** Filter jobs from boards with remote support. */
+  /** Filter jobs from boards with remote support, or workMode Remote, or location contains "remote". */
   remoteSupport?: boolean;
+  /** Filter by job title seniority (junior, mid, senior). */
+  seniority?: SeniorityFilter;
   /** Filter by country (e.g. US, global). */
   country?: string;
   /** Filter by tag (job must have at least one of these). */
   tags?: string[];
   /** Filter by auto-apply support (true = only jobs with supported apply URL). */
   autoApplySupported?: boolean;
+  /** Filter by company application history: has_prior = companies with prior applications; never_applied = no history; on_cooldown = within cooldown window. */
+  companyMemoryFilter?: "has_prior" | "never_applied" | "on_cooldown";
 }
 
 export interface JobWithScore extends IJob {
@@ -64,8 +70,24 @@ export async function getJobsWithScores(
   if (filters.company) {
     query.company = new RegExp(filters.company, "i");
   }
+  const andConditions: Record<string, unknown>[] = [];
   if (filters.remoteSupport === true) {
-    query.remoteSupport = true;
+    andConditions.push({
+      $or: [
+        { remoteSupport: true },
+        { workMode: "Remote" },
+        { location: new RegExp("remote", "i") }
+      ]
+    });
+  }
+  if (filters.seniority) {
+    const titlePattern =
+      filters.seniority === "junior"
+        ? /junior/i
+        : filters.seniority === "senior"
+          ? /senior/i
+          : /\bmid\b|middle/i;
+    query.title = titlePattern;
   }
   if (filters.country) {
     query.country = filters.country;
@@ -74,10 +96,13 @@ export async function getJobsWithScores(
     query.tags = { $in: filters.tags };
   }
   if (filters.autoApplySupported === true) {
-    query.autoApplySupported = true;
+    andConditions.push({ autoApplySupported: true });
   } else if (filters.autoApplySupported === false) {
-    query.$or = [{ autoApplySupported: false }, { autoApplySupported: { $exists: false } }];
+    andConditions.push({
+      $or: [{ autoApplySupported: false }, { autoApplySupported: { $exists: false } }]
+    });
   }
+  if (andConditions.length) query.$and = andConditions;
 
   /** Cap jobs per request so scoring and render stay fast. */
   const JOBS_PAGE_LIMIT = 500;
@@ -90,6 +115,25 @@ export async function getJobsWithScores(
 
   if (filters.minScore != null) {
     withScores = withScores.filter((j) => j.score >= filters.minScore!);
+  }
+
+  const companyMemoryFilter = filters.companyMemoryFilter;
+  if (companyMemoryFilter) {
+    const { normalizeCompanyName } = await import("@/lib/companyNormalization");
+    const { listCompanyMemoriesByUser, getCompaniesOnCooldownForUser } = await import("@/services/companyMemory/companyMemoryService");
+    const { getRulesConfig } = await import("@/services/rules/rulesConfig");
+    const memories = await listCompanyMemoriesByUser(user);
+    const memorySet = new Set(memories.map((m) => m.normalizedCompanyName));
+    const cooldownDays = getRulesConfig().companyCooldownDays;
+    const cooldownSet = companyMemoryFilter === "on_cooldown" ? await getCompaniesOnCooldownForUser(user, cooldownDays) : null;
+    withScores = withScores.filter((job) => {
+      const company = (job as IJob).company ?? "";
+      const normalized = normalizeCompanyName(company);
+      if (companyMemoryFilter === "has_prior") return memorySet.has(normalized);
+      if (companyMemoryFilter === "never_applied") return !memorySet.has(normalized);
+      if (companyMemoryFilter === "on_cooldown" && cooldownSet) return normalized && cooldownSet.has(normalized);
+      return true;
+    });
   }
 
   const sortBy = filters.sortBy ?? "score-desc";
@@ -374,9 +418,13 @@ export async function getAutoQueueMetrics(userId: { _id: unknown }): Promise<{
   };
 }
 
-/** Queue only eligible Greenhouse auto-apply matches (ready_for_review, score >= threshold, job source=Greenhouse, autoApplySupported=true). */
+/** Queue only eligible Greenhouse auto-apply matches (ready_for_review, score >= threshold, job source=Greenhouse, autoApplySupported=true). Skips companies in review-required list. */
 export async function queueGreenhouseAutoApplyJobs(userId: { _id: unknown }): Promise<{ queued: number; message: string }> {
   await connectToDatabase();
+  const userDoc = await User.findById(userId._id).lean();
+  const companyReviewRequired = (userDoc as { autoApplyReviewRequiredCompanies?: string[] } | null)?.autoApplyReviewRequiredCompanies ?? [];
+  const reviewRequiredSet = new Set(companyReviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+
   const {
     resolveQueueStatusByUrl,
     logJobBlockedBeforeQueue
@@ -402,6 +450,8 @@ export async function queueGreenhouseAutoApplyJobs(userId: { _id: unknown }): Pr
       autoApplySupported?: boolean;
     };
     if (!job || job.source !== "Greenhouse" || job.autoApplySupported !== true) continue;
+    const companyLower = (job.company ?? "").trim().toLowerCase();
+    if (companyLower && reviewRequiredSet.has(companyLower)) continue;
     const resolved = resolveQueueStatusByUrl(job, "queued");
     if (resolved.applicationStatus !== "queued") {
       if (resolved.applicationStatus === "skipped_unsupported" && resolved.classification != null) {
@@ -430,6 +480,10 @@ export async function queueGreenhouseAutoApplyJobs(userId: { _id: unknown }): Pr
 /** Backfill applicationStatus from score; for Greenhouse queued, run rules and set queuedAt. */
 export async function backfillApplicationStatusFromScore(userId: { _id: unknown }): Promise<number> {
   await connectToDatabase();
+  const userDoc = await User.findById(userId._id).lean();
+  const companyBlacklist = (userDoc as { autoApplyBlacklistCompanies?: string[] } | null)?.autoApplyBlacklistCompanies ?? [];
+  const companyReviewRequired = (userDoc as { autoApplyReviewRequiredCompanies?: string[] } | null)?.autoApplyReviewRequiredCompanies ?? [];
+
   const {
     resolveQueueStatusByUrl,
     logJobBlockedBeforeQueue,
@@ -485,13 +539,21 @@ export async function backfillApplicationStatusFromScore(userId: { _id: unknown 
           postedAt: job?.postedAt,
           foundAt: job?.foundAt
         },
-        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score: (m as { score?: number }).score }
+        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score: (m as { score?: number }).score },
+        undefined,
+        { companyBlacklist }
       );
       if (!ruleResult.eligible) {
         finalStatus = "skipped_rules";
         finalFailureReason = ruleResult.reasons[0] ?? "Rules engine blocked";
       } else {
-        queuedAt = new Date();
+        const companyLower = (job?.company ?? "").trim().toLowerCase();
+        const reviewRequiredSet = new Set(companyReviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+        if (companyLower && reviewRequiredSet.has(companyLower)) {
+          finalStatus = "ready_for_review";
+        } else {
+          queuedAt = new Date();
+        }
       }
     }
 
@@ -532,6 +594,10 @@ export async function recheckSkippedRulesMatchesForSeniority(userId: { _id: unkn
   readyForReview: number;
 }> {
   await connectToDatabase();
+  const userDoc = await User.findById(userId._id).lean();
+  const companyBlacklist = (userDoc as { autoApplyBlacklistCompanies?: string[] } | null)?.autoApplyBlacklistCompanies ?? [];
+  const companyReviewRequired = (userDoc as { autoApplyReviewRequiredCompanies?: string[] } | null)?.autoApplyReviewRequiredCompanies ?? [];
+
   const { isSeniorityOnlyFailureReason } = await import("@/services/rules/rulesConfig");
   const {
     resolveQueueStatusByUrl,
@@ -595,12 +661,21 @@ export async function recheckSkippedRulesMatchesForSeniority(userId: { _id: unkn
           postedAt: job.postedAt,
           foundAt: job.foundAt
         },
-        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score }
+        { missingSkills: (m as { missingSkills?: string[] }).missingSkills, score },
+        undefined,
+        { companyBlacklist }
       );
       if (ruleResult.eligible) {
-        finalStatus = "queued";
-        queuedAt = new Date();
-        queued += 1;
+        const companyLower = (job.company ?? "").trim().toLowerCase();
+        const reviewRequiredSet = new Set(companyReviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+        if (companyLower && reviewRequiredSet.has(companyLower)) {
+          finalStatus = "ready_for_review";
+          readyForReview += 1;
+        } else {
+          finalStatus = "queued";
+          queuedAt = new Date();
+          queued += 1;
+        }
       } else {
         finalStatus = "ready_for_review";
         readyForReview += 1;
@@ -642,6 +717,15 @@ export type ReviewQueueItem = {
   urlClassification?: string;
   /** True when user overrode rules and sent this match to queue. */
   rulesOverridden?: boolean;
+  /** Apply profile name (when using apply profiles). */
+  applyProfileName?: string | null;
+  /** Company application history for this job's company (optional). */
+  companyMemory?: {
+    lastAppliedAt: string | null;
+    lastOutcome: string | null;
+    lastApplyProfileName: string;
+    totalApplications: number;
+  } | null;
 };
 
 export type ReviewQueueFilter = {
@@ -696,6 +780,7 @@ export async function getReviewQueueItems(
     if (companySubstring && !(job.company ?? "").toLowerCase().includes(companySubstring)) continue;
     if (autoApplyFilter === true && !job.autoApplySupported) continue;
     if (autoApplyFilter === false && job.autoApplySupported === true) continue;
+    const matchWithProfile = m as { applyProfileName?: string | null };
     items.push({
       matchId: String(m._id),
       jobId: String(job._id),
@@ -709,10 +794,28 @@ export async function getReviewQueueItems(
       applicationStatus: m.applicationStatus ?? "new",
       autoApplySupported: job.autoApplySupported,
       urlClassification: job.urlClassification,
-      rulesOverridden: (m as { rulesOverridden?: boolean }).rulesOverridden === true
+      rulesOverridden: (m as { rulesOverridden?: boolean }).rulesOverridden === true,
+      applyProfileName: matchWithProfile.applyProfileName ?? null
     });
   }
-  return items;
+  const uniqueCompanies = [...new Set(items.map((i) => i.company).filter(Boolean))];
+  const { getCompanyMemoryByUserAndCompany } = await import("@/services/companyMemory/companyMemoryService");
+  const memoryByCompany: Record<string, ReviewQueueItem["companyMemory"]> = {};
+  for (const company of uniqueCompanies) {
+    const mem = await getCompanyMemoryByUserAndCompany(userId, company);
+    if (mem) {
+      memoryByCompany[company] = {
+        lastAppliedAt: mem.lastAppliedAt ? mem.lastAppliedAt.toISOString() : null,
+        lastOutcome: mem.lastOutcome ?? null,
+        lastApplyProfileName: mem.lastApplyProfileName ?? "",
+        totalApplications: mem.totalApplications ?? 0
+      };
+    }
+  }
+  return items.map((item) => ({
+    ...item,
+    companyMemory: memoryByCompany[item.company] ?? null
+  }));
 }
 
 /**
@@ -822,11 +925,22 @@ export async function approveMatch(matchId: string, userId: { _id: unknown }): P
 export async function rejectMatch(matchId: string, userId: { _id: unknown }): Promise<boolean> {
   await connectToDatabase();
   if (!mongoose.Types.ObjectId.isValid(matchId)) return false;
+  const match = await Match.findOne({ _id: matchId, user: userId._id }).populate("job").lean();
   const res = await Match.updateOne(
     { _id: matchId, user: userId._id },
     { $set: { applicationStatus: "rejected", status: "rejected" } }
   );
-  if (res.modifiedCount) {
+  if (res.modifiedCount && match?.job) {
+    const job = match.job as { company?: string; title?: string };
+    const { recordApplicationOutcome } = await import("@/services/companyMemory/companyMemoryService");
+    await recordApplicationOutcome({
+      userId: userId._id,
+      companyName: job.company ?? "",
+      jobTitle: job.title ?? "",
+      outcome: "rejected"
+    });
+    await logActivity({ type: "review", matchId, status: "success", message: "Rejected" });
+  } else if (res.modifiedCount) {
     await logActivity({ type: "review", matchId, status: "success", message: "Rejected" });
   }
   return res.modifiedCount > 0;
@@ -892,6 +1006,20 @@ export async function getMatchForJobAndUser(
   if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) return null;
   const match = await Match.findOne({ job: jobId, user: userId }).lean();
   return match as IMatch | null;
+}
+
+/** Set or clear the user-selected apply profile for a match (used on job details / review before apply). */
+export async function updateMatchSelectedApplyProfile(
+  matchId: string,
+  userId: mongoose.Types.ObjectId | string,
+  applyProfileId: string | null
+): Promise<boolean> {
+  await connectToDatabase();
+  if (!mongoose.Types.ObjectId.isValid(matchId)) return false;
+  const uid = typeof userId === "string" ? userId : userId.toString();
+  const update: Record<string, unknown> = { selectedApplyProfileId: applyProfileId ? new mongoose.Types.ObjectId(applyProfileId) : null };
+  const result = await Match.updateOne({ _id: matchId, user: uid }, { $set: update });
+  return result.modifiedCount > 0;
 }
 
 export async function getOperationalMetrics(userId: { _id: unknown }): Promise<{
@@ -965,6 +1093,60 @@ function startOfTodayUTC(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
   return d;
+}
+
+export type DashboardDayActivity = {
+  date: string;
+  label: string;
+  jobsAdded: number;
+  applied: number;
+};
+
+/** Last 7 days (UTC) with jobs added and applications count per day for dashboard charts. */
+export async function getDashboardActivitySeries(userId: { _id: unknown }): Promise<DashboardDayActivity[]> {
+  await connectToDatabase();
+  const now = new Date();
+  const start = new Date(now);
+  start.setUTCDate(start.getUTCDate() - 7);
+  start.setUTCHours(0, 0, 0, 0);
+
+  const [jobBuckets, appliedBuckets] = await Promise.all([
+    Job.aggregate<{ _id: string; count: number }>([
+      { $match: { createdAt: { $gte: start } } },
+      { $group: { _id: { $dateToString: { date: "$createdAt", format: "%Y-%m-%d" } }, count: { $sum: 1 } } }
+    ]),
+    Match.aggregate<{ _id: string; count: number }>([
+      {
+        $match: {
+          user: userId._id,
+          applicationStatus: "applied",
+          appliedAt: { $exists: true, $gte: start }
+        }
+      },
+      { $group: { _id: { $dateToString: { date: "$appliedAt", format: "%Y-%m-%d" } }, count: { $sum: 1 } } }
+    ])
+  ]);
+
+  const jobsByDate: Record<string, number> = {};
+  jobBuckets.forEach((r) => { jobsByDate[r._id] = r.count; });
+  const appliedByDate: Record<string, number> = {};
+  appliedBuckets.forEach((r) => { appliedByDate[r._id] = r.count; });
+
+  const series: DashboardDayActivity[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - i);
+    d.setUTCHours(0, 0, 0, 0);
+    const dateStr = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    series.push({
+      date: dateStr,
+      label,
+      jobsAdded: jobsByDate[dateStr] ?? 0,
+      applied: appliedByDate[dateStr] ?? 0
+    });
+  }
+  return series;
 }
 
 export async function getWorkerHealth(userId: { _id: unknown }): Promise<{

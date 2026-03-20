@@ -47,6 +47,12 @@ export interface IMatch extends Document {
   queuedAt?: Date;
   /** True when user manually overrode rules (skipped_rules → queued); worker skips rules engine for this match. */
   rulesOverridden?: boolean;
+  /** Apply profile used for this application (when using Apply Profiles feature). */
+  applyProfileId?: Types.ObjectId;
+  /** Name of apply profile (denormalized for display). */
+  applyProfileName?: string;
+  /** User-selected override: apply profile to use (set on job details / review before apply). */
+  selectedApplyProfileId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,7 +91,10 @@ const MatchSchema = new Schema<IMatch>(
     tailoredCoverLetter: { type: String },
     tailoredUsedInApply: { type: Boolean, default: false },
     queuedAt: { type: Date },
-    rulesOverridden: { type: Boolean, default: false }
+    rulesOverridden: { type: Boolean, default: false },
+    applyProfileId: { type: Schema.Types.ObjectId, ref: "ApplyProfile" },
+    applyProfileName: { type: String },
+    selectedApplyProfileId: { type: Schema.Types.ObjectId, ref: "ApplyProfile" }
   },
   { timestamps: true }
 );

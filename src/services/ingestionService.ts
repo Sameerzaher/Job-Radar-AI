@@ -114,13 +114,22 @@ export async function ingestJob(
               postedAt: updatedJob.postedAt,
               foundAt: updatedJob.foundAt
             },
-            { missingSkills: match.missingSkills, score: matchScore }
+            { missingSkills: match.missingSkills, score: matchScore },
+            undefined,
+            { companyBlacklist: (user as IUser & { autoApplyBlacklistCompanies?: string[] }).autoApplyBlacklistCompanies }
           );
           if (!ruleResult.eligible) {
             finalStatus = "skipped_rules";
             finalFailureReason = ruleResult.reasons[0] ?? "Rules engine blocked";
           } else {
-            queuedAt = new Date();
+            const companyLower = (updatedJob.company ?? "").trim().toLowerCase();
+            const reviewRequired = (user as IUser & { autoApplyReviewRequiredCompanies?: string[] }).autoApplyReviewRequiredCompanies ?? [];
+            const reviewSet = new Set(reviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+            if (companyLower && reviewSet.has(companyLower)) {
+              finalStatus = "ready_for_review";
+            } else {
+              queuedAt = new Date();
+            }
           }
         }
         const update: Record<string, unknown> = { applicationStatus: finalStatus, failureReason: finalFailureReason };
@@ -150,13 +159,22 @@ export async function ingestJob(
               postedAt: updatedJob.postedAt,
               foundAt: updatedJob.foundAt
             },
-            { missingSkills: missingSkills, score }
+            { missingSkills: missingSkills, score },
+            undefined,
+            { companyBlacklist: (user as IUser & { autoApplyBlacklistCompanies?: string[] }).autoApplyBlacklistCompanies }
           );
           if (!ruleResult.eligible) {
             createStatus = "skipped_rules";
             createFailureReason = ruleResult.reasons[0] ?? "Rules engine blocked";
           } else {
-            createQueuedAt = new Date();
+            const companyLower = (updatedJob.company ?? "").trim().toLowerCase();
+            const reviewRequired = (user as IUser & { autoApplyReviewRequiredCompanies?: string[] }).autoApplyReviewRequiredCompanies ?? [];
+            const reviewSet = new Set(reviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+            if (companyLower && reviewSet.has(companyLower)) {
+              createStatus = "ready_for_review";
+            } else {
+              createQueuedAt = new Date();
+            }
           }
         }
         match = await Match.create({
@@ -226,13 +244,22 @@ export async function ingestJob(
         postedAt: job.postedAt,
         foundAt: job.foundAt
       },
-      { missingSkills: missingSkills, score }
+      { missingSkills: missingSkills, score },
+      undefined,
+      { companyBlacklist: (user as IUser & { autoApplyBlacklistCompanies?: string[] }).autoApplyBlacklistCompanies }
     );
     if (!ruleResult.eligible) {
       applicationStatus = "skipped_rules";
       failureReason = ruleResult.reasons[0] ?? "Rules engine blocked";
     } else {
-      queuedAt = new Date();
+      const companyLower = (job.company ?? "").trim().toLowerCase();
+      const reviewRequired = (user as IUser & { autoApplyReviewRequiredCompanies?: string[] }).autoApplyReviewRequiredCompanies ?? [];
+      const reviewSet = new Set(reviewRequired.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+      if (companyLower && reviewSet.has(companyLower)) {
+        applicationStatus = "ready_for_review";
+      } else {
+        queuedAt = new Date();
+      }
     }
   }
   if (resolved.applicationStatus === "skipped_unsupported" && resolved.classification != null) {

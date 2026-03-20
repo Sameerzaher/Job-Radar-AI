@@ -4,6 +4,14 @@ import { getOrCreateDefaultUser, updateUserProfile } from "@/services/userServic
 import { ProfileForm } from "@/components/profile/ProfileForm";
 import { PageHeader } from "@/components/ui";
 
+const scoreWeightsSchema = z.object({
+  titleMatch: z.number().min(0).max(200).optional(),
+  skillMatch: z.number().min(0).max(200).optional(),
+  locationMatch: z.number().min(0).max(200).optional(),
+  remoteMatch: z.number().min(0).max(200).optional(),
+  seniorityMatch: z.number().min(0).max(200).optional()
+}).optional();
+
 const profileSchema = z.object({
   name: z.string().min(1),
   targetRoles: z.array(z.string()).default([]),
@@ -23,7 +31,10 @@ const profileSchema = z.object({
   githubUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   resumeFilePath: z.string().optional(),
-  defaultCoverLetter: z.string().optional()
+  defaultCoverLetter: z.string().optional(),
+  scoreWeights: scoreWeightsSchema,
+  autoApplyBlacklistCompanies: z.array(z.string()).default([]),
+  autoApplyReviewRequiredCompanies: z.array(z.string()).default([])
 });
 
 export const dynamic = "force-dynamic";
@@ -48,6 +59,9 @@ async function saveProfile(formData: {
   portfolioUrl?: string;
   resumeFilePath?: string;
   defaultCoverLetter?: string;
+  scoreWeights?: { titleMatch?: number; skillMatch?: number; locationMatch?: number; remoteMatch?: number; seniorityMatch?: number };
+  autoApplyBlacklistCompanies?: string[];
+  autoApplyReviewRequiredCompanies?: string[];
 }) {
   "use server";
 

@@ -6,6 +6,8 @@
 import { connectToDatabase } from "@/lib/db";
 import { Match } from "@/models/Match";
 import { getRulesConfig, UNSUPPORTED_ROLE_SUBSTRINGS, PREFERRED_LOCATION_KEYWORDS, isSeniorLevelJob } from "./rulesConfig";
+import { normalizeCompanyName } from "@/lib/companyNormalization";
+import { getCompaniesOnCooldownForUser } from "@/services/companyMemory/companyMemoryService";
 
 const LOG_PREFIX = "[JobRadar] Rules:";
 
@@ -36,6 +38,11 @@ export type RulesSimulationContext = {
   appliedCompanyNames?: string[];
 };
 
+export type RulesEvaluationOptions = {
+  /** Company names to never auto-apply to (case-insensitive). From user.autoApplyBlacklistCompanies. */
+  companyBlacklist?: string[];
+};
+
 /**
  * Evaluate a job for auto-apply eligibility. Returns eligible flag and list of block reasons.
  * Called before pushing a job into the apply queue.
@@ -45,35 +52,60 @@ export async function evaluateJobForAutoApply(
   userId: { _id: unknown },
   job: JobForRules,
   match: MatchForRules,
-  simulationContext?: RulesSimulationContext
+  simulationContext?: RulesSimulationContext,
+  options?: RulesEvaluationOptions
 ): Promise<RuleEvaluationResult> {
   const reasons: string[] = [];
   const config = getRulesConfig();
+  const companyLower = (job.company ?? "").trim().toLowerCase();
 
-  // Company cooldown: applied to same company within N days
-  const appliedCompanies = new Set<string>();
-  if (simulationContext?.appliedCompanyNames?.length) {
-    simulationContext.appliedCompanyNames.forEach((c) =>
-      appliedCompanies.add(String(c).trim().toLowerCase())
-    );
-  } else {
-    await connectToDatabase();
-    const cooldownCutoff = new Date();
-    cooldownCutoff.setDate(cooldownCutoff.getDate() - config.companyCooldownDays);
-    const allApplied = await Match.find({
-      user: userId._id,
-      applicationStatus: "applied",
-      appliedAt: { $gte: cooldownCutoff }
-    })
-      .populate("job")
-      .lean();
-    for (const m of allApplied) {
-      const j = m.job as unknown as { company?: string };
-      if (j?.company) appliedCompanies.add(String(j.company).trim().toLowerCase());
+  // Company blacklist: do not auto-apply to these companies
+  const blacklist = options?.companyBlacklist ?? [];
+  if (companyLower && blacklist.length > 0) {
+    const blacklistSet = new Set(blacklist.map((c) => String(c).trim().toLowerCase()).filter(Boolean));
+    if (blacklistSet.has(companyLower)) {
+      reasons.push("Company in do-not-apply list");
     }
   }
-  const companyLower = (job.company ?? "").trim().toLowerCase();
-  if (companyLower && appliedCompanies.has(companyLower)) {
+
+  // Company cooldown: applied to same company within N days (CompanyMemory first, then Match fallback)
+  let cooldownBlocked = false;
+  if (simulationContext?.appliedCompanyNames?.length) {
+    const appliedCompanies = new Set(simulationContext.appliedCompanyNames.map((c) => String(c).trim().toLowerCase()));
+    cooldownBlocked = companyLower !== "" && appliedCompanies.has(companyLower);
+  } else {
+    await connectToDatabase();
+    const normalizedCompany = normalizeCompanyName(job.company ?? "");
+    const cooldownSet = await getCompaniesOnCooldownForUser(userId, config.companyCooldownDays);
+    if (cooldownSet.size > 0) {
+      console.log(`${LOG_PREFIX} company memory loaded in rules evaluation | companiesOnCooldown=${cooldownSet.size}`);
+    }
+    if (normalizedCompany && cooldownSet.has(normalizedCompany)) {
+      cooldownBlocked = true;
+      console.log(
+        `${LOG_PREFIX} cooldown triggered from company history | company="${job.company ?? ""}" normalized="${normalizedCompany}"`
+      );
+    }
+    if (!cooldownBlocked) {
+      const cooldownCutoff = new Date();
+      cooldownCutoff.setDate(cooldownCutoff.getDate() - config.companyCooldownDays);
+      const allApplied = await Match.find({
+        user: userId._id,
+        applicationStatus: "applied",
+        appliedAt: { $gte: cooldownCutoff }
+      })
+        .populate("job")
+        .lean();
+      for (const m of allApplied) {
+        const j = m.job as unknown as { company?: string };
+        if (j?.company && String(j.company).trim().toLowerCase() === companyLower) {
+          cooldownBlocked = true;
+          break;
+        }
+      }
+    }
+  }
+  if (cooldownBlocked) {
     reasons.push(`Company cooldown (applied to this company within ${config.companyCooldownDays} days)`);
   }
 

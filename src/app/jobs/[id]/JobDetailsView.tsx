@@ -33,6 +33,23 @@ type JobDetailsViewProps = {
   tailorResumeAction: (jobId: string) => Promise<void>;
   hasResume: boolean;
   updateStatusAction: (jobId: string, status: JobStatus) => Promise<void>;
+  applyProfileSelection?: { selectedProfileName: string; reasons: string[]; useUserFallback: boolean } | null;
+  applyProfiles?: { _id: string; name: string }[];
+  matchId?: string | null;
+  selectedApplyProfileId?: unknown;
+  setSelectedApplyProfileAction?: (matchId: string, applyProfileId: string | null) => Promise<void>;
+  /** Company application history for this job's company (optional). */
+  companyMemory?: {
+    displayCompanyName: string;
+    lastAppliedAt: string | null;
+    lastAppliedRole: string;
+    lastOutcome: string | null;
+    totalApplications: number;
+    totalApplied: number;
+    totalFailed: number;
+    totalNeedsReview: number;
+    lastApplyProfileName: string;
+  } | null;
 };
 
 const RECOMMENDATION_STYLE: Record<string, { bg: string; label: string }> = {
@@ -40,6 +57,22 @@ const RECOMMENDATION_STYLE: Record<string, { bg: string; label: string }> = {
   maybe: { bg: "bg-amber-500/20 text-amber-400", label: "Maybe" },
   skip: { bg: "bg-slate-500/20 text-slate-400", label: "Skip" }
 };
+
+const APPLICATION_STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  queued: "Queued",
+  ready_for_review: "Ready for review",
+  approved: "Approved",
+  applying: "Applying",
+  applied: "Applied",
+  failed: "Failed",
+  needs_review: "Needs review",
+  rejected: "Rejected",
+  skipped_rules: "Skipped (rules)",
+  skipped_unsupported: "Skipped (unsupported)"
+};
+
+const DESCRIPTION_TRUNCATE_LEN = 1200;
 
 function getScoreStyle(score: number): { bg: string; text: string; label: string } {
   if (score >= 80) return { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "High match" };
@@ -58,13 +91,39 @@ export function JobDetailsView({
   analyzeAction,
   tailorResumeAction,
   hasResume,
-  updateStatusAction
+  updateStatusAction,
+  applyProfileSelection,
+  applyProfiles = [],
+  matchId,
+  selectedApplyProfileId,
+  setSelectedApplyProfileAction,
+  companyMemory
 }: JobDetailsViewProps) {
   const router = useRouter();
   const [analyzing, setAnalyzing] = useState(false);
+  const [profileSelectBusy, setProfileSelectBusy] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tailoring, setTailoring] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+
+  const jobStatus = (job as { status?: string }).status ?? "new";
+  const appStatus = match?.applicationStatus ?? "new";
+  const appliedAt = match?.appliedAt
+    ? typeof match.appliedAt === "string"
+      ? new Date(match.appliedAt)
+      : (match.appliedAt as Date)
+    : null;
+  const failureReason = (match as { failureReason?: string | null }).failureReason ?? null;
+  const showReviewLink =
+    appStatus === "ready_for_review" || appStatus === "needs_review" || appStatus === "failed";
+  const description = job.description ?? "";
+  const isLongDescription = description.length > DESCRIPTION_TRUNCATE_LEN;
+  const descriptionToShow =
+    isLongDescription && !descriptionExpanded
+      ? description.slice(0, DESCRIPTION_TRUNCATE_LEN) + "…"
+      : description;
+  const jobTags = (job as { tags?: string[] }).tags ?? [];
 
   const hasAIAnalysis = match?.aiSummary != null && match.aiSummary.length > 0;
   const recStyle = match?.recommendation
@@ -216,16 +275,178 @@ export function JobDetailsView({
         )}
       </header>
 
+      {/* Apply profile */}
+      {applyProfileSelection && matchId && (
+        <section className="glass-panel p-6">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-slate-400">
+            Apply profile
+          </h2>
+          <p className="mt-2 text-sm text-slate-300">
+            Selected: <strong>{applyProfileSelection.selectedProfileName}</strong>
+            {applyProfileSelection.useUserFallback && " (user profile – no apply profiles defined)"}
+          </p>
+          {applyProfileSelection.reasons.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">Reasons: {applyProfileSelection.reasons.join("; ")}</p>
+          )}
+          {applyProfiles.length > 0 && setSelectedApplyProfileAction && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="text-xs text-slate-500">Override:</label>
+              <select
+                className="rounded border border-slate-600 bg-slate-800/50 px-2 py-1 text-sm text-slate-200"
+                value={selectedApplyProfileId ? String(selectedApplyProfileId) : ""}
+                disabled={profileSelectBusy}
+                onChange={async (e) => {
+                  const v = e.target.value;
+                  setProfileSelectBusy(true);
+                  try {
+                    await setSelectedApplyProfileAction(matchId, v || null);
+                    router.refresh();
+                  } finally {
+                    setProfileSelectBusy(false);
+                  }
+                }}
+              >
+                <option value="">Auto (recommended)</option>
+                {applyProfiles.map((p) => (
+                  <option key={p._id} value={p._id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Status & application */}
+      <section className="glass-panel p-6">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-slate-400">
+          Status & application
+        </h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-medium text-slate-500">Job status</p>
+            <p className="mt-1 text-sm capitalize text-slate-200">{jobStatus}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-500">Application status</p>
+            <p className="mt-1 text-sm text-slate-200">
+              {APPLICATION_STATUS_LABELS[appStatus] ?? appStatus}
+            </p>
+          </div>
+          {appliedAt && (
+            <div>
+              <p className="text-xs font-medium text-slate-500">Applied at</p>
+              <p className="mt-1 text-sm text-slate-200">
+                {appliedAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+              </p>
+            </div>
+          )}
+          {failureReason && (
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium text-slate-500">Failure reason</p>
+              <p className="mt-1 text-sm text-amber-300">{failureReason}</p>
+            </div>
+          )}
+        </div>
+        {showReviewLink && (
+          <div className="mt-4">
+            <Link
+              href="/review"
+              className="inline-flex items-center rounded-xl border border-amber-600/60 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-300 hover:bg-amber-500/20"
+            >
+              Review this job →
+            </Link>
+          </div>
+        )}
+      </section>
+
+      {/* Company Memory */}
+      {companyMemory && (
+        <section className="glass-panel p-6">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-slate-400">
+            Company application history
+          </h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Prior applications at {companyMemory.displayCompanyName}
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {companyMemory.lastAppliedAt && (
+              <div>
+                <p className="text-xs font-medium text-slate-500">Last applied</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  {new Date(companyMemory.lastAppliedAt).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short"
+                  })}
+                </p>
+              </div>
+            )}
+            {companyMemory.lastAppliedRole && (
+              <div>
+                <p className="text-xs font-medium text-slate-500">Last role</p>
+                <p className="mt-1 text-sm text-slate-200">{companyMemory.lastAppliedRole}</p>
+              </div>
+            )}
+            {companyMemory.lastOutcome && (
+              <div>
+                <p className="text-xs font-medium text-slate-500">Last outcome</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  {APPLICATION_STATUS_LABELS[companyMemory.lastOutcome] ?? companyMemory.lastOutcome}
+                </p>
+              </div>
+            )}
+            {companyMemory.lastApplyProfileName && (
+              <div>
+                <p className="text-xs font-medium text-slate-500">Profile used</p>
+                <p className="mt-1 text-sm text-slate-200">{companyMemory.lastApplyProfileName}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-medium text-slate-500">Total applications (all outcomes)</p>
+              <p className="mt-1 text-sm text-slate-200">{companyMemory.totalApplications}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500">Applied / Failed / Needs review</p>
+              <p className="mt-1 text-sm text-slate-200">
+                {companyMemory.totalApplied} / {companyMemory.totalFailed} / {companyMemory.totalNeedsReview}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Description */}
       <section className="glass-panel p-6">
         <h2 className="text-sm font-medium uppercase tracking-wider text-slate-400">
           Description
         </h2>
+        {jobTags.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {jobTags.map((t) => (
+              <span
+                key={t}
+                className="rounded-full border border-slate-600 bg-slate-800/60 px-2.5 py-0.5 text-xs text-slate-300"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className="mt-3 text-slate-300">
-          {job.description ? (
-            <div className="whitespace-pre-wrap text-sm leading-relaxed">
-              {job.description}
-            </div>
+          {description ? (
+            <>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                {descriptionToShow}
+              </div>
+              {isLongDescription && (
+                <button
+                  type="button"
+                  onClick={() => setDescriptionExpanded((e) => !e)}
+                  className="mt-2 text-sm font-medium text-accent hover:underline"
+                >
+                  {descriptionExpanded ? "Show less" : "Show more"}
+                </button>
+              )}
+            </>
           ) : (
             <p className="text-sm text-slate-500">No description available.</p>
           )}

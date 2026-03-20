@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import type { IUser } from "@/models/User";
+import type { IUser, ScoreWeights } from "@/models/User";
 import { SectionCard, Button } from "@/components/ui";
+
+const DEFAULT_WEIGHT = 100;
 
 type ProfileFormProps = {
   initialUser: IUser;
@@ -26,6 +28,9 @@ type ProfileFormProps = {
     portfolioUrl?: string;
     resumeFilePath?: string;
     defaultCoverLetter?: string;
+    scoreWeights?: ScoreWeights;
+    autoApplyBlacklistCompanies?: string[];
+    autoApplyReviewRequiredCompanies?: string[];
   }) => Promise<void>;
 };
 
@@ -47,6 +52,7 @@ export function ProfileForm({ initialUser, onSave }: ProfileFormProps) {
   const userWithApp = initialUser as IUser & {
     phone?: string; linkedinUrl?: string; githubUrl?: string; portfolioUrl?: string; resumeFilePath?: string; defaultCoverLetter?: string;
     baseResumeText?: string; defaultCoverLetterTemplate?: string; yearsOfExperience?: string; keyProjects?: string[]; achievements?: string[];
+    autoApplyBlacklistCompanies?: string[]; autoApplyReviewRequiredCompanies?: string[];
   };
   const [phone, setPhone] = useState(userWithApp.phone ?? "");
   const [linkedinUrl, setLinkedinUrl] = useState(userWithApp.linkedinUrl ?? "");
@@ -59,8 +65,35 @@ export function ProfileForm({ initialUser, onSave }: ProfileFormProps) {
   const [yearsOfExperience, setYearsOfExperience] = useState(userWithApp.yearsOfExperience ?? "");
   const [keyProjects, setKeyProjects] = useState((userWithApp.keyProjects ?? []).join("\n"));
   const [achievements, setAchievements] = useState((userWithApp.achievements ?? []).join("\n"));
+  const userWeights = (initialUser as IUser & { scoreWeights?: ScoreWeights }).scoreWeights ?? {};
+  const [titleMatchWeight, setTitleMatchWeight] = useState(
+    String(userWeights.titleMatch ?? DEFAULT_WEIGHT)
+  );
+  const [skillMatchWeight, setSkillMatchWeight] = useState(
+    String(userWeights.skillMatch ?? DEFAULT_WEIGHT)
+  );
+  const [locationMatchWeight, setLocationMatchWeight] = useState(
+    String(userWeights.locationMatch ?? DEFAULT_WEIGHT)
+  );
+  const [remoteMatchWeight, setRemoteMatchWeight] = useState(
+    String(userWeights.remoteMatch ?? DEFAULT_WEIGHT)
+  );
+  const [seniorityMatchWeight, setSeniorityMatchWeight] = useState(
+    String(userWeights.seniorityMatch ?? DEFAULT_WEIGHT)
+  );
+  const [autoApplyBlacklist, setAutoApplyBlacklist] = useState(
+    (userWithApp.autoApplyBlacklistCompanies ?? []).join(", ")
+  );
+  const [autoApplyReviewRequired, setAutoApplyReviewRequired] = useState(
+    (userWithApp.autoApplyReviewRequiredCompanies ?? []).join(", ")
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  function parseWeight(v: string): number {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? Math.max(0, Math.min(200, n)) : DEFAULT_WEIGHT;
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -102,7 +135,22 @@ export function ProfileForm({ initialUser, onSave }: ProfileFormProps) {
         githubUrl: githubUrl.trim() || undefined,
         portfolioUrl: portfolioUrl.trim() || undefined,
         resumeFilePath: resumeFilePath.trim() || undefined,
-        defaultCoverLetter: defaultCoverLetter.trim() || undefined
+        defaultCoverLetter: defaultCoverLetter.trim() || undefined,
+        scoreWeights: {
+          titleMatch: parseWeight(titleMatchWeight),
+          skillMatch: parseWeight(skillMatchWeight),
+          locationMatch: parseWeight(locationMatchWeight),
+          remoteMatch: parseWeight(remoteMatchWeight),
+          seniorityMatch: parseWeight(seniorityMatchWeight)
+        },
+        autoApplyBlacklistCompanies: autoApplyBlacklist
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean),
+        autoApplyReviewRequiredCompanies: autoApplyReviewRequired
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean)
       });
       setMessage("Profile updated");
     } catch (error) {
@@ -236,8 +284,88 @@ export function ProfileForm({ initialUser, onSave }: ProfileFormProps) {
         <p className="text-ds-caption text-slate-500">Comma-separated. Jobs containing these get a score penalty.</p>
       </div>
 
+      <h3 className="text-ds-body font-semibold text-slate-200 pt-4 border-t border-slate-700/60 mt-6">Score weights</h3>
+      <p className="text-ds-caption text-slate-500">Adjust how much each dimension affects the match score. 100 = default, higher = dimension matters more (0–200).</p>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="space-y-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Title / role</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            className="ds-input w-20"
+            value={titleMatchWeight}
+            onChange={(e) => setTitleMatchWeight(e.target.value)}
+          />
+        </div>
+        <div className="space-y-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Skills</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            className="ds-input w-20"
+            value={skillMatchWeight}
+            onChange={(e) => setSkillMatchWeight(e.target.value)}
+          />
+        </div>
+        <div className="space-y-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Location</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            className="ds-input w-20"
+            value={locationMatchWeight}
+            onChange={(e) => setLocationMatchWeight(e.target.value)}
+          />
+        </div>
+        <div className="space-y-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Remote</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            className="ds-input w-20"
+            value={remoteMatchWeight}
+            onChange={(e) => setRemoteMatchWeight(e.target.value)}
+          />
+        </div>
+        <div className="space-y-ds-input-gap">
+          <label className="text-ds-caption font-medium text-slate-500">Seniority</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            className="ds-input w-20"
+            value={seniorityMatchWeight}
+            onChange={(e) => setSeniorityMatchWeight(e.target.value)}
+          />
+        </div>
+      </div>
+
       <h3 className="text-ds-body font-semibold text-slate-200 pt-4 border-t border-slate-700/60 mt-6">Application profile (auto-apply)</h3>
       <p className="text-ds-caption text-slate-500">Used when auto-applying to Greenhouse, Lever, and Workable jobs. Name and email come from above.</p>
+      <div className="space-y-ds-input-gap">
+        <label className="text-ds-caption font-medium text-slate-500">Do not auto-apply to these companies</label>
+        <input
+          className="ds-input"
+          value={autoApplyBlacklist}
+          onChange={(e) => setAutoApplyBlacklist(e.target.value)}
+          placeholder="e.g. Company A, Company B"
+        />
+        <p className="text-ds-caption text-slate-500">Comma-separated. Jobs from these companies will never be auto-applied (skipped_rules).</p>
+      </div>
+      <div className="space-y-ds-input-gap">
+        <label className="text-ds-caption font-medium text-slate-500">Always require review before applying</label>
+        <input
+          className="ds-input"
+          value={autoApplyReviewRequired}
+          onChange={(e) => setAutoApplyReviewRequired(e.target.value)}
+          placeholder="e.g. Big Corp, Startup Inc"
+        />
+        <p className="text-ds-caption text-slate-500">Comma-separated. Jobs from these companies go to Ready for review instead of auto-queue; you approve manually.</p>
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-ds-input-gap">
           <label className="text-ds-caption font-medium text-slate-500">Phone</label>

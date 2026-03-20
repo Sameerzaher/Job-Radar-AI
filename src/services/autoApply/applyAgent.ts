@@ -15,16 +15,20 @@ import { logActivity } from "@/services/activityLogger";
 import {
   isSupportedApplySource,
   userToApplicationProfile,
+  applyProfileToApplicationProfile,
   type AutoApplyOptions,
   type AutoApplyResult,
   type ApplyAttemptContext,
   type ApplicationMethod
 } from "./types";
+import { selectBestApplyProfile } from "@/services/applyProfiles/selectApplyProfile";
+import { getApplyProfileById } from "@/services/applyProfiles/applyProfileService";
 import { applyWithGreenhouse } from "./greenhouseApply";
 import { applyWithLever } from "./leverApply";
 import { applyWithWorkable } from "./workableApply";
 import { evaluateJobForAutoApply, logRuleDecision } from "@/services/rules/rulesEngine";
 import { classifyProviderUrl } from "./providerUrlClassifier";
+import { recordApplicationOutcome } from "@/services/companyMemory/companyMemoryService";
 
 const LOG_GH = "[JobRadar] Greenhouse:";
 
@@ -186,6 +190,12 @@ export async function runAutoApply(
         { _id: m._id },
         { $set: { applicationStatus: "skipped_unsupported", failureReason: "Unsupported source" } }
       );
+      await recordApplicationOutcome({
+        userId: user._id,
+        companyName: job.company ?? "",
+        jobTitle: job.title ?? "",
+        outcome: "skipped_unsupported"
+      });
       result.skipped += 1;
       result.skippedUnsupported += 1;
       result.results.push({
@@ -227,6 +237,12 @@ export async function runAutoApply(
         { _id: m._id },
         { $set: { applicationStatus: "skipped_unsupported", failureReason } }
       );
+      await recordApplicationOutcome({
+        userId: user._id,
+        companyName: job.company ?? "",
+        jobTitle: job.title ?? "",
+        outcome: "skipped_unsupported"
+      });
       result.skipped += 1;
       result.skippedUnsupported += 1;
       result.results.push({
@@ -275,7 +291,13 @@ export async function runAutoApply(
     if (rulesOverridden) {
       if (verbose) console.log("[JobRadar] worker processing overridden job | rules bypassed |", job.title, job.company);
     } else {
-      const ruleResult = await evaluateJobForAutoApply(user, job, m);
+      const ruleResult = await evaluateJobForAutoApply(
+        user,
+        job,
+        m,
+        undefined,
+        { companyBlacklist: (user as { autoApplyBlacklistCompanies?: string[] }).autoApplyBlacklistCompanies }
+      );
       if (!ruleResult.eligible) {
         if (verbose) console.log("[JobRadar] decision: skip – rules blocked |", ruleResult.reasons[0] ?? "rules not met", "|", job.title, job.company);
         const failureReason = ruleResult.reasons[0] ?? "Rules not met";
@@ -283,6 +305,12 @@ export async function runAutoApply(
           { _id: m._id },
           { $set: { applicationStatus: "skipped_rules", failureReason } }
         );
+        await recordApplicationOutcome({
+          userId: user._id,
+          companyName: job.company ?? "",
+          jobTitle: job.title ?? "",
+          outcome: "skipped_rules"
+        });
         result.skipped += 1;
         result.skippedRules += 1;
         result.results.push({
@@ -325,12 +353,126 @@ export async function runAutoApply(
     const jobId = String(job._id);
     const matchId = String(match._id);
     const method = sourceToMethod(job.source)!;
+    const userIdStr = (user as { _id: { toString(): string } })._id.toString();
 
-    const matchProfile = { ...profile };
-    const tailored = await getTailoredApplicationByMatchId(matchId, (user as { _id: { toString(): string } })._id.toString());
+    let matchProfile: import("./types").ApplicationProfile;
+    let applyProfileIdToSet: string | null = null;
+    let applyProfileNameToSet: string | null = null;
+
+    const selectedOverrideId = (match as { selectedApplyProfileId?: unknown }).selectedApplyProfileId;
+    if (selectedOverrideId) {
+      const overrideProfile = await getApplyProfileById(String(selectedOverrideId), userIdStr);
+      if (overrideProfile && overrideProfile.isActive) {
+        if (!overrideProfile.resumeFilePath?.trim()) {
+          console.log("[JobRadar] Apply profile missing resume – moving to ready_for_review", overrideProfile.name);
+          await Match.updateOne(
+            { _id: match._id },
+            {
+              $set: {
+                applicationStatus: "ready_for_review",
+                failureReason: "Selected apply profile has no resume configured"
+              }
+            }
+          );
+          result.needsReview += 1;
+          result.results.push({
+            jobId,
+            title: job.title,
+            company: job.company,
+            source: job.source,
+            status: "needs_review",
+            failureReason: "Selected apply profile has no resume configured"
+          });
+          await logActivity({
+            type: "apply",
+            source: job.source,
+            jobId,
+            matchId,
+            status: "failed",
+            message: "Selected apply profile has no resume configured",
+            details: { applyProfileName: overrideProfile.name }
+          });
+          continue;
+        }
+        matchProfile = applyProfileToApplicationProfile(user, overrideProfile);
+        applyProfileIdToSet = String(overrideProfile._id);
+        applyProfileNameToSet = overrideProfile.name;
+      } else {
+        const sel = await selectBestApplyProfile(user, job, match as import("@/models/Match").IMatch);
+        if (sel.useUserFallback) {
+          matchProfile = userToApplicationProfile(user);
+        } else if (sel.selectedProfile) {
+          if (!sel.selectedProfile.resumeFilePath?.trim()) {
+            console.log("[JobRadar] Selected apply profile missing resume – moving to ready_for_review", sel.selectedProfile.name);
+            await Match.updateOne(
+              { _id: match._id },
+              {
+                $set: {
+                  applicationStatus: "ready_for_review",
+                  failureReason: "Selected apply profile has no resume configured"
+                }
+              }
+            );
+            result.needsReview += 1;
+            result.results.push({
+              jobId,
+              title: job.title,
+              company: job.company,
+              source: job.source,
+              status: "needs_review",
+              failureReason: "Selected apply profile has no resume configured"
+            });
+            continue;
+          }
+          matchProfile = applyProfileToApplicationProfile(user, sel.selectedProfile);
+          applyProfileIdToSet = String(sel.selectedProfile._id);
+          applyProfileNameToSet = sel.selectedProfile.name;
+        } else {
+          matchProfile = userToApplicationProfile(user);
+        }
+      }
+    } else {
+      const sel = await selectBestApplyProfile(user, job, match as import("@/models/Match").IMatch);
+      if (sel.useUserFallback) {
+        matchProfile = userToApplicationProfile(user);
+      } else if (sel.selectedProfile) {
+        if (!sel.selectedProfile.resumeFilePath?.trim()) {
+          console.log("[JobRadar] Selected apply profile missing resume – moving to ready_for_review", sel.selectedProfile.name);
+          await Match.updateOne(
+            { _id: match._id },
+            {
+              $set: {
+                applicationStatus: "ready_for_review",
+                failureReason: "Selected apply profile has no resume configured"
+              }
+            }
+          );
+          result.needsReview += 1;
+          result.results.push({
+            jobId,
+            title: job.title,
+            company: job.company,
+            source: job.source,
+            status: "needs_review",
+            failureReason: "Selected apply profile has no resume configured"
+          });
+          continue;
+        }
+        matchProfile = applyProfileToApplicationProfile(user, sel.selectedProfile);
+        applyProfileIdToSet = String(sel.selectedProfile._id);
+        applyProfileNameToSet = sel.selectedProfile.name;
+      } else {
+        matchProfile = userToApplicationProfile(user);
+      }
+    }
+
+    const tailored = await getTailoredApplicationByMatchId(matchId, userIdStr);
     if (tailored && (tailored.status === "approved" || tailored.status === "used") && tailored.coverLetter) {
+      matchProfile = { ...matchProfile };
       matchProfile.tailoredCoverLetter = tailored.coverLetter;
       matchProfile.tailoredRecruiterMessage = tailored.recruiterMessage ?? undefined;
+    } else if (applyProfileNameToSet && (matchProfile as { defaultCoverLetter?: string }).defaultCoverLetter) {
+      matchProfile = { ...matchProfile };
     }
 
     if (dryRun) {
@@ -402,20 +544,27 @@ export async function runAutoApply(
     const now = new Date();
     if (applyResult.success) {
       const usedTailored = Boolean(matchProfile.tailoredCoverLetter);
-      await Match.updateOne(
-        { _id: match._id },
-        {
-          $set: {
-            applicationStatus: "applied",
-            autoApplied: true,
-            appliedAt: now,
-            applicationMethod: method,
-            failureReason: null,
-            status: "applied",
-            tailoredUsedInApply: usedTailored
-          }
-        }
-      );
+      const update: Record<string, unknown> = {
+        applicationStatus: "applied",
+        autoApplied: true,
+        appliedAt: now,
+        applicationMethod: method,
+        failureReason: null,
+        status: "applied",
+        tailoredUsedInApply: usedTailored
+      };
+      if (applyProfileIdToSet) update.applyProfileId = applyProfileIdToSet;
+      if (applyProfileNameToSet) update.applyProfileName = applyProfileNameToSet;
+      await Match.updateOne({ _id: match._id }, { $set: update });
+      await recordApplicationOutcome({
+        userId: user._id,
+        companyName: job.company ?? "",
+        jobTitle: job.title ?? "",
+        outcome: "applied",
+        applyProfileId: applyProfileIdToSet ?? undefined,
+        applyProfileName: applyProfileNameToSet ?? undefined,
+        appliedAt: now
+      });
       try {
         const sent = await sendApplicationSuccess({
           title: job.title,
@@ -451,15 +600,21 @@ export async function runAutoApply(
         details: { title: job.title, company: job.company }
       });
     } else if (applyResult.needsReview) {
-      await Match.updateOne(
-        { _id: match._id },
-        {
-          $set: {
-            applicationStatus: "needs_review",
-            failureReason: applyResult.failureReason ?? "Unknown"
-          }
-        }
-      );
+      const update: Record<string, unknown> = {
+        applicationStatus: "needs_review",
+        failureReason: applyResult.failureReason ?? "Unknown"
+      };
+      if (applyProfileIdToSet) update.applyProfileId = applyProfileIdToSet;
+      if (applyProfileNameToSet) update.applyProfileName = applyProfileNameToSet;
+      await Match.updateOne({ _id: match._id }, { $set: update });
+      await recordApplicationOutcome({
+        userId: user._id,
+        companyName: job.company ?? "",
+        jobTitle: job.title ?? "",
+        outcome: "needs_review",
+        applyProfileId: applyProfileIdToSet ?? undefined,
+        applyProfileName: applyProfileNameToSet ?? undefined
+      });
       result.needsReview += 1;
       result.results.push({
         jobId,
@@ -481,15 +636,21 @@ export async function runAutoApply(
         details: { title: job.title, failureReason: applyResult.failureReason }
       });
     } else {
-      await Match.updateOne(
-        { _id: match._id },
-        {
-          $set: {
-            applicationStatus: "failed",
-            failureReason: applyResult.failureReason ?? "Unknown"
-          }
-        }
-      );
+      const update: Record<string, unknown> = {
+        applicationStatus: "failed",
+        failureReason: applyResult.failureReason ?? "Unknown"
+      };
+      if (applyProfileIdToSet) update.applyProfileId = applyProfileIdToSet;
+      if (applyProfileNameToSet) update.applyProfileName = applyProfileNameToSet;
+      await Match.updateOne({ _id: match._id }, { $set: update });
+      await recordApplicationOutcome({
+        userId: user._id,
+        companyName: job.company ?? "",
+        jobTitle: job.title ?? "",
+        outcome: "failed",
+        applyProfileId: applyProfileIdToSet ?? undefined,
+        applyProfileName: applyProfileNameToSet ?? undefined
+      });
       result.failed += 1;
       result.results.push({
         jobId,

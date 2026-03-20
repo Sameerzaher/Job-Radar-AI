@@ -312,6 +312,50 @@ export async function getGreenhouseOutcomeMetrics(userId: { _id: unknown }): Pro
   };
 }
 
+export type ApplyProfileMetrics = {
+  profileName: string;
+  applied: number;
+  failed: number;
+  needsReview: number;
+  successRate: number | null;
+};
+
+/** Applications by apply profile (for operations analytics). */
+export async function getApplicationsByApplyProfile(userId: {
+  _id: unknown;
+}): Promise<ApplyProfileMetrics[]> {
+  await connectToDatabase();
+  const matches = await Match.find({
+    user: userId._id,
+    applicationStatus: { $in: ["applied", "failed", "needs_review"] }
+  }).lean();
+
+  const byProfile = new Map<
+    string,
+    { applied: number; failed: number; needsReview: number }
+  >();
+  for (const m of matches) {
+    const name = (m as { applyProfileName?: string | null }).applyProfileName?.trim() || "User profile";
+    if (!byProfile.has(name)) byProfile.set(name, { applied: 0, failed: 0, needsReview: 0 });
+    const row = byProfile.get(name)!;
+    if (m.applicationStatus === "applied") row.applied += 1;
+    else if (m.applicationStatus === "failed") row.failed += 1;
+    else row.needsReview += 1;
+  }
+  const result: ApplyProfileMetrics[] = [];
+  for (const [profileName, row] of byProfile.entries()) {
+    const total = row.applied + row.failed + row.needsReview;
+    result.push({
+      profileName,
+      applied: row.applied,
+      failed: row.failed,
+      needsReview: row.needsReview,
+      successRate: total > 0 ? Math.round((row.applied / total) * 100) : null
+    });
+  }
+  return result.sort((a, b) => (b.applied + b.failed + b.needsReview) - (a.applied + a.failed + a.needsReview));
+}
+
 export async function getFailureReasonsByProvider(userId: { _id: unknown }): Promise<FailureReasonByProvider[]> {
   await connectToDatabase();
   const todayStart = startOfTodayUTC();

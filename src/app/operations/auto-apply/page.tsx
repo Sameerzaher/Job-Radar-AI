@@ -9,9 +9,11 @@ import {
   getRecentApplications,
   getRecentGreenhouseAttempts,
   getGreenhouseOutcomeMetrics,
-  getProviderHealthRecommendation
+  getProviderHealthRecommendation,
+  getApplicationsByApplyProfile
 } from "@/services/autoApply/providerPerformance";
-import { SectionCard, StatCard } from "@/components/ui";
+import { listCompanyMemoriesByUser } from "@/services/companyMemory/companyMemoryService";
+import { PageHeader, SectionCard, StatCard } from "@/components/ui";
 import { WorkerTriggerButton } from "@/components/operations/WorkerTriggerButton";
 import { QueueGreenhouseButton } from "@/components/operations/QueueGreenhouseButton";
 
@@ -29,7 +31,7 @@ async function queueGreenhouseAction() {
 
 export default async function AutoApplyOperationsPage() {
   const user = await getOrCreateDefaultUser();
-  const [diagnostics, appStats, metrics, telegram, liveData, providerStats, recentApps, greenhouseReadiness, greenhouseOutcomes, recentGreenhouse, autoQueueMetrics] = await Promise.all([
+  const [diagnostics, appStats, metrics, telegram, liveData, providerStats, recentApps, greenhouseReadiness, greenhouseOutcomes, recentGreenhouse, autoQueueMetrics, applyProfileMetrics, companyMemories] = await Promise.all([
     getAutoApplyDiagnostics(user),
     getApplicationStats(user),
     getOperationalMetrics(user),
@@ -40,7 +42,9 @@ export default async function AutoApplyOperationsPage() {
     getGreenhouseReadiness(user),
     getGreenhouseOutcomeMetrics(user),
     getRecentGreenhouseAttempts(user, 50),
-    getAutoQueueMetrics(user)
+    getAutoQueueMetrics(user),
+    getApplicationsByApplyProfile(user),
+    listCompanyMemoriesByUser(user)
   ]);
 
   const lock = diagnostics.lockState;
@@ -58,6 +62,10 @@ export default async function AutoApplyOperationsPage() {
 
   return (
     <div className="space-y-ds-section">
+      <PageHeader
+        title="Auto-apply operations"
+        description="Greenhouse readiness, recent attempts, live verification, and worker diagnostics."
+      />
       <SectionCard>
         <h2 className="text-ds-title font-semibold text-slate-100">Greenhouse live readiness</h2>
         <p className="mt-1 text-ds-caption text-slate-500">
@@ -96,39 +104,82 @@ export default async function AutoApplyOperationsPage() {
       </SectionCard>
 
       <SectionCard>
+        <h2 className="text-ds-title font-semibold text-slate-100">Applications by company memory</h2>
+        <p className="mt-1 text-ds-caption text-slate-500">
+          Application history per company (normalized). Used for cooldowns and duplicate prevention.
+        </p>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-800/20">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-600 bg-slate-800/60">
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Company</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Total</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Last outcome</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Applied %</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Last applied at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companyMemories.length === 0 ? (
+                  <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No company memory yet (applications will populate this)</td></tr>
+                ) : (
+                  companyMemories.slice(0, 100).map((mem) => {
+                    const total = mem.totalApplications || 1;
+                    const pct = total ? Math.round((mem.totalApplied / total) * 100) : 0;
+                    return (
+                      <tr key={mem._id?.toString() ?? mem.normalizedCompanyName} className="border-b border-slate-700/50 transition-colors hover:bg-slate-800/40 last:border-b-0">
+                        <td className="px-3 py-2.5 font-medium text-slate-200">{mem.displayCompanyName}</td>
+                        <td className="px-3 py-2.5 text-right">{mem.totalApplications}</td>
+                        <td className="px-3 py-2.5">{mem.lastOutcome ?? "—"}</td>
+                        <td className="px-3 py-2.5 text-right">{pct}%</td>
+                        <td className="px-3 py-2.5">{mem.lastAppliedAt ? new Date(mem.lastAppliedAt).toLocaleString() : "—"}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard>
         <h2 className="text-ds-title font-semibold text-slate-100">Recent Greenhouse attempts</h2>
         <p className="mt-1 text-ds-caption text-slate-500">
           Last 50 Greenhouse application attempts (applied, failed, needs_review) for verification.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm text-slate-300">
-            <thead>
-              <tr className="border-b border-slate-600">
-                <th className="py-2 text-left font-medium">Title</th>
-                <th className="py-2 text-left">Company</th>
-                <th className="py-2 text-left">Status</th>
-                <th className="py-2 text-left max-w-[240px]">Failure reason</th>
-                <th className="py-2 text-left">Applied at</th>
-                <th className="py-2 text-center">Tailored</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentGreenhouse.length === 0 ? (
-                <tr><td colSpan={6} className="py-4 text-center text-slate-500">No Greenhouse attempts yet</td></tr>
-              ) : (
-                recentGreenhouse.map((a) => (
-                  <tr key={a.matchId} className="border-b border-slate-700/50">
-                    <td className="py-2">{a.title}</td>
-                    <td className="py-2">{a.company}</td>
-                    <td className="py-2">{a.finalStatus}</td>
-                    <td className="py-2 max-w-[240px] truncate text-slate-400" title={a.failureReason ?? ""}>{a.failureReason ?? "—"}</td>
-                    <td className="py-2">{a.appliedAt ? new Date(a.appliedAt).toLocaleString() : "—"}</td>
-                    <td className="py-2 text-center">{a.tailoredUsedInApply ? "Yes" : "—"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-800/20">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-600 bg-slate-800/60">
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Title</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Company</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200 max-w-[240px]">Failure reason</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Applied at</th>
+                  <th className="px-3 py-2.5 text-center font-medium text-slate-200">Tailored</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentGreenhouse.length === 0 ? (
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No Greenhouse attempts yet</td></tr>
+                ) : (
+                  recentGreenhouse.map((a) => (
+                    <tr key={a.matchId} className="border-b border-slate-700/50 transition-colors hover:bg-slate-800/40 last:border-b-0">
+                      <td className="px-3 py-2.5">{a.title}</td>
+                      <td className="px-3 py-2.5">{a.company}</td>
+                      <td className="px-3 py-2.5">{a.finalStatus}</td>
+                      <td className="max-w-[240px] truncate px-3 py-2.5 text-slate-400" title={a.failureReason ?? ""}>{a.failureReason ?? "—"}</td>
+                      <td className="px-3 py-2.5">{a.appliedAt ? new Date(a.appliedAt).toLocaleString() : "—"}</td>
+                      <td className="px-3 py-2.5 text-center">{a.tailoredUsedInApply ? "Yes" : "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </SectionCard>
 
@@ -166,11 +217,11 @@ export default async function AutoApplyOperationsPage() {
         <p className="mt-1 text-ds-caption text-slate-500">
           Warnings that block or affect full live auto-apply.
         </p>
-        <div className={`mt-4 rounded-ds-lg border px-4 py-3 ${liveReady ? "border-emerald-600/60 bg-emerald-900/20 text-emerald-200" : "border-amber-600/60 bg-amber-900/20 text-amber-200"}`}>
+        <div className={`mt-4 rounded-xl border px-5 py-4 ${liveReady ? "border-emerald-600/60 bg-emerald-900/20 text-emerald-200" : "border-amber-600/60 bg-amber-900/20 text-amber-200"}`}>
           {liveReady ? (
-            <p><strong>Ready for live.</strong> No warnings.</p>
+            <p className="font-medium">Ready for live. No warnings.</p>
           ) : (
-            <ul className="list-inside list-disc space-y-1">
+            <ul className="list-inside list-disc space-y-2 text-sm">
               {liveWarnings.map((w) => (
                 <li key={w}>{w}</li>
               ))}
@@ -179,45 +230,95 @@ export default async function AutoApplyOperationsPage() {
         </div>
       </SectionCard>
 
+      {applyProfileMetrics.length > 0 && (
+        <SectionCard>
+          <h2 className="text-ds-title font-semibold text-slate-100">Applications by apply profile</h2>
+          <p className="mt-1 text-ds-caption text-slate-500">
+            Applied, failed, needs_review, and success rate per profile.
+          </p>
+          <div className="mt-4 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-800/20">
+            <table className="w-full text-sm text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-600 bg-slate-800/60">
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Profile</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Applied</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Failed</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Needs review</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Success rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applyProfileMetrics.map((row) => (
+                  <tr key={row.profileName} className="border-b border-slate-700/50 hover:bg-slate-800/40 last:border-b-0">
+                    <td className="px-3 py-2.5 font-medium text-slate-200">{row.profileName}</td>
+                    <td className="px-3 py-2.5 text-right">{row.applied}</td>
+                    <td className="px-3 py-2.5 text-right">{row.failed}</td>
+                    <td className="px-3 py-2.5 text-right">{row.needsReview}</td>
+                    <td className="px-3 py-2.5 text-right">{row.successRate != null ? `${row.successRate}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+
       <SectionCard>
         <h2 className="text-ds-title font-semibold text-slate-100">Provider performance (today)</h2>
         <p className="mt-1 text-ds-caption text-slate-500">
           Per-provider attempted, applied, failed, needs_review, success rate.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm text-slate-300">
-            <thead>
-              <tr className="border-b border-slate-600">
-                <th className="py-2 text-left font-medium">Provider</th>
-                <th className="py-2 text-right">Attempted</th>
-                <th className="py-2 text-right">Applied</th>
-                <th className="py-2 text-right">Needs review</th>
-                <th className="py-2 text-right">Skipped (URL)</th>
-                <th className="py-2 text-right">Failed</th>
-                <th className="py-2 text-right">Success rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {providerStats.map((s) => (
-                <tr key={s.provider} className="border-b border-slate-700/50">
-                  <td className="py-2">{s.provider}</td>
-                  <td className="py-2 text-right">{s.attempted}</td>
-                  <td className="py-2 text-right">{s.applied}</td>
-                  <td className="py-2 text-right">{s.needs_review}</td>
-                  <td className="py-2 text-right">{s.skipped_unsupported}</td>
-                  <td className="py-2 text-right">{s.failed}</td>
-                  <td className="py-2 text-right">{s.successRate != null ? `${s.successRate}%` : "—"}</td>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-800/20">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-600 bg-slate-800/60">
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Provider</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Attempted</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Applied</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Needs review</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Skipped (URL)</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Failed</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-slate-200">Success rate</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {providerStats.map((s) => (
+                  <tr key={s.provider} className="border-b border-slate-700/50 transition-colors hover:bg-slate-800/40 last:border-b-0">
+                    <td className="px-3 py-2.5 font-medium text-slate-200">{s.provider}</td>
+                    <td className="px-3 py-2.5 text-right">{s.attempted}</td>
+                    <td className="px-3 py-2.5 text-right">{s.applied}</td>
+                    <td className="px-3 py-2.5 text-right">{s.needs_review}</td>
+                    <td className="px-3 py-2.5 text-right">{s.skipped_unsupported}</td>
+                    <td className="px-3 py-2.5 text-right">{s.failed}</td>
+                    <td className="px-3 py-2.5 text-right">{s.successRate != null ? `${s.successRate}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="mt-4 space-y-2">
-          {providerStats.map((s) => (
-            <p key={s.provider} className="text-ds-caption text-slate-400">
-              <strong>{s.provider}:</strong> {getProviderHealthRecommendation(s)}
-            </p>
-          ))}
+        <div className="mt-4 flex flex-wrap gap-3">
+          {providerStats.map((s) => {
+            const text = getProviderHealthRecommendation(s);
+            const t = text.toLowerCase();
+            const severity = t.includes("ready for live") || t.includes("no attempts today") ? "success" : t.includes("low success") || t.includes("keep manual") || t.includes("review-only") ? "danger" : "warning";
+            return (
+              <div
+                key={s.provider}
+                className={`rounded-lg border px-4 py-3 text-sm min-w-[200px] ${
+                  severity === "success"
+                    ? "border-emerald-600/50 bg-emerald-900/20 text-emerald-200"
+                    : severity === "danger"
+                      ? "border-red-600/50 bg-red-900/20 text-red-200"
+                      : "border-amber-600/50 bg-amber-900/20 text-amber-200"
+                }`}
+              >
+                <p className="font-semibold">{s.provider}</p>
+                <p className="mt-0.5 opacity-95">{text}</p>
+              </div>
+            );
+          })}
         </div>
       </SectionCard>
 
@@ -226,44 +327,48 @@ export default async function AutoApplyOperationsPage() {
         <p className="mt-1 text-ds-caption text-slate-500">
           Title, company, provider, status, failure reason, applied at, tailored used.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm text-slate-300">
-            <thead>
-              <tr className="border-b border-slate-600">
-                <th className="py-2 text-left font-medium">Title</th>
-                <th className="py-2 text-left">Company</th>
-                <th className="py-2 text-left">Provider</th>
-                <th className="py-2 text-left">Status</th>
-                <th className="py-2 text-left max-w-[200px]">Failure reason</th>
-                <th className="py-2 text-left">Applied at</th>
-                <th className="py-2 text-center">Tailored</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentApps.length === 0 ? (
-                <tr><td colSpan={7} className="py-4 text-center text-slate-500">No applications yet</td></tr>
-              ) : (
-                recentApps.map((a) => (
-                  <tr key={a.matchId} className="border-b border-slate-700/50">
-                    <td className="py-2">{a.title}</td>
-                    <td className="py-2">{a.company}</td>
-                    <td className="py-2">{a.provider}</td>
-                    <td className="py-2">{a.finalStatus}</td>
-                    <td className="py-2 max-w-[200px] truncate text-slate-400" title={a.failureReason ?? ""}>{a.failureReason ?? "—"}</td>
-                    <td className="py-2">{a.appliedAt ? new Date(a.appliedAt).toLocaleString() : "—"}</td>
-                    <td className="py-2 text-center">{a.tailoredUsedInApply ? "Yes" : "—"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-800/20">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-600 bg-slate-800/60">
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Title</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Company</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Provider</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200 max-w-[200px]">Failure reason</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-slate-200">Applied at</th>
+                  <th className="px-3 py-2.5 text-center font-medium text-slate-200">Tailored</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentApps.length === 0 ? (
+                  <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500">No applications yet</td></tr>
+                ) : (
+                  recentApps.map((a) => (
+                    <tr key={a.matchId} className="border-b border-slate-700/50 transition-colors hover:bg-slate-800/40 last:border-b-0">
+                      <td className="px-3 py-2.5">{a.title}</td>
+                      <td className="px-3 py-2.5">{a.company}</td>
+                      <td className="px-3 py-2.5">{a.provider}</td>
+                      <td className="px-3 py-2.5">{a.finalStatus}</td>
+                      <td className="max-w-[200px] truncate px-3 py-2.5 text-slate-400" title={a.failureReason ?? ""}>{a.failureReason ?? "—"}</td>
+                      <td className="px-3 py-2.5">{a.appliedAt ? new Date(a.appliedAt).toLocaleString() : "—"}</td>
+                      <td className="px-3 py-2.5 text-center">{a.tailoredUsedInApply ? "Yes" : "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </SectionCard>
 
       {workerNotRunning && (
-        <div className="rounded-ds-lg border border-amber-600/60 bg-amber-900/20 px-4 py-3 text-amber-200">
-          <strong>Auto-apply worker is not running.</strong> Start the worker with{" "}
-          <code className="rounded bg-amber-900/40 px-1">npm run worker:auto-apply</code> or trigger one cycle below.
+        <div className="rounded-xl border-l-4 border-amber-500 border-amber-600/60 bg-amber-900/20 px-5 py-4 text-amber-200 shadow-sm">
+          <p className="font-semibold">Auto-apply worker is not running</p>
+          <p className="mt-1.5 text-sm text-amber-200/90">
+            Start the worker with <code className="rounded bg-amber-900/40 px-2 py-0.5 font-mono text-sm">npm run worker:auto-apply</code> or trigger one cycle below.
+          </p>
         </div>
       )}
 
@@ -272,41 +377,25 @@ export default async function AutoApplyOperationsPage() {
         <p className="mt-1 text-ds-caption text-slate-500">
           Verify these before relying on automatic execution.
         </p>
-        <ul className="mt-4 space-y-2 text-sm text-slate-300">
-          <li className="flex items-center gap-2">
-            <span className={diagnostics.autoApplyEnabled ? "text-emerald-400" : "text-amber-400"}>
-              {diagnostics.autoApplyEnabled ? "✓" : "✗"}
-            </span>
-            <span><strong>Live mode enabled</strong> — AUTO_APPLY_ENABLED = {String(diagnostics.autoApplyEnabled)}</span>
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={diagnostics.dryRunDefault ? "text-amber-400" : "text-emerald-400"}>
-              {diagnostics.dryRunDefault ? "✓" : "✗"}
-            </span>
-            <span><strong>Dry run</strong> — DRY_RUN_DEFAULT = {String(diagnostics.dryRunDefault)} {diagnostics.dryRunDefault && "(no real applications)"}</span>
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={workerConfigured ? "text-emerald-400" : "text-slate-500"}>
-              {workerConfigured ? "✓" : "—"}
-            </span>
-            <span><strong>Worker configured</strong> — {workerConfigured ? "Heartbeat present" : "No heartbeat yet (run a cycle or start worker)"}</span>
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="text-emerald-400">✓</span>
-            <span><strong>Supported URL</strong> — Only official apply URLs are used: Greenhouse (boards.greenhouse.io, grnh.se), Lever (jobs.lever.co), Workable (apply.workable.com). Custom career pages → skipped_unsupported.</span>
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={resumePath ? "text-emerald-400" : "text-amber-400"}>
-              {resumePath ? "✓" : "✗"}
-            </span>
-            <span><strong>Resume path configured</strong> — {resumePath ? resumePath : "Set resumeFilePath in Profile for uploads"}</span>
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={telegram.telegramConfigured ? "text-emerald-400" : "text-amber-400"}>
-              {telegram.telegramConfigured ? "✓" : "✗"}
-            </span>
-            <span><strong>Telegram configured</strong> — {telegram.telegramConfigured ? "Yes" : "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for notifications"}</span>
-          </li>
+        <ul className="mt-4 space-y-2">
+          {[
+            { ok: diagnostics.autoApplyEnabled, label: "Live mode enabled", detail: `AUTO_APPLY_ENABLED = ${String(diagnostics.autoApplyEnabled)}` },
+            { ok: !diagnostics.dryRunDefault, label: "Dry run", detail: `DRY_RUN_DEFAULT = ${String(diagnostics.dryRunDefault)}${diagnostics.dryRunDefault ? " (no real applications)" : ""}` },
+            { ok: workerConfigured, label: "Worker configured", detail: workerConfigured ? "Heartbeat present" : "No heartbeat yet (run a cycle or start worker)" },
+            { ok: true, label: "Supported URL", detail: "Greenhouse, Lever, Workable. Custom pages → skipped_unsupported." },
+            { ok: !!resumePath, label: "Resume path", detail: resumePath || "Set resumeFilePath in Profile" },
+            { ok: telegram.telegramConfigured, label: "Telegram", detail: telegram.telegramConfigured ? "Yes" : "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID" }
+          ].map((item, i) => (
+            <li key={i} className="flex items-start gap-3 rounded-lg border border-slate-700/50 bg-slate-800/30 px-4 py-3">
+              <span className={`mt-0.5 shrink-0 text-lg ${item.ok ? "text-emerald-400" : "text-amber-400"}`}>
+                {item.ok ? "✓" : "✗"}
+              </span>
+              <div className="min-w-0 text-sm">
+                <p className="font-medium text-slate-200">{item.label}</p>
+                <p className="mt-0.5 text-slate-400">{item.detail}</p>
+              </div>
+            </li>
+          ))}
         </ul>
       </SectionCard>
 
@@ -333,52 +422,62 @@ export default async function AutoApplyOperationsPage() {
             subtitle="Score ≥ threshold"
           />
         </div>
-        <div className="mt-4 space-y-1 text-ds-caption text-slate-400">
-          <p>
-            Lock state:{" "}
-            {lock
-              ? `${lock.locked ? "locked" : "unlocked"}${
-                  lock.lockedBy ? ` by ${lock.lockedBy}` : ""
-                }`
-              : "no lock document yet"}
-          </p>
-          <p>
-            Last heartbeat:{" "}
-            {lock?.heartbeatAt
-              ? new Date(lock.heartbeatAt).toLocaleString()
-              : "—"}
-          </p>
-          <p>
-            Last run started:{" "}
-            {metrics.lastAutoApplyRunStartedAt
-              ? metrics.lastAutoApplyRunStartedAt.toLocaleString()
-              : "—"}
-          </p>
-          <p>
-            Last run completed:{" "}
-            {metrics.lastAutoApplyRunCompletedAt
-              ? metrics.lastAutoApplyRunCompletedAt.toLocaleString()
-              : "—"}
-          </p>
-          <p>
-            Last run status: {metrics.lastAutoApplyRunStatus ?? "—"}
-          </p>
-          {lock?.lastError && (
-            <p className="text-amber-400">Last error: {lock.lastError}</p>
-          )}
+        <div className="mt-4 rounded-lg border border-slate-700/60 bg-slate-800/30 p-4">
+          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Lock state</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {lock
+                  ? `${lock.locked ? "Locked" : "Unlocked"}${lock.lockedBy ? ` by ${lock.lockedBy}` : ""}`
+                  : "No lock document yet"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Last heartbeat</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {lock?.heartbeatAt ? new Date(lock.heartbeatAt).toLocaleString() : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Last run started</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {metrics.lastAutoApplyRunStartedAt ? metrics.lastAutoApplyRunStartedAt.toLocaleString() : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Last run completed</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {metrics.lastAutoApplyRunCompletedAt ? metrics.lastAutoApplyRunCompletedAt.toLocaleString() : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Last run status</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">{metrics.lastAutoApplyRunStatus ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">Worker heartbeat</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {metrics.lastAutoApplyHeartbeat
+                  ? `${metrics.lastAutoApplyHeartbeat.toLocaleString()}${metrics.autoApplyWorkerStale ? " (stale)" : ""}`
+                  : "No heartbeat yet"}
+              </dd>
+            </div>
+          </dl>
           {lock?.lastRunSummary && typeof lock.lastRunSummary === "object" && (
-            <p>
-              Last run summary: applied={(lock.lastRunSummary as Record<string, unknown>).applied ?? "—"} failed={(lock.lastRunSummary as Record<string, unknown>).failed ?? "—"} needs_review={(lock.lastRunSummary as Record<string, unknown>).needsReview ?? "—"}
+            <div className="mt-4 border-t border-slate-700/60 pt-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Last run summary</p>
+              <div className="mt-2 flex flex-wrap gap-4 text-sm text-slate-200">
+                <span><strong className="text-slate-400">Applied:</strong> {String((lock.lastRunSummary as Record<string, unknown>).applied ?? "—")}</span>
+                <span><strong className="text-slate-400">Failed:</strong> {String((lock.lastRunSummary as Record<string, unknown>).failed ?? "—")}</span>
+                <span><strong className="text-slate-400">Needs review:</strong> {String((lock.lastRunSummary as Record<string, unknown>).needsReview ?? "—")}</span>
+              </div>
+            </div>
+          )}
+          {lock?.lastError && (
+            <p className="mt-4 border-t border-slate-700/60 pt-4 text-sm text-amber-400">
+              <strong>Last error:</strong> {lock.lastError}
             </p>
           )}
-          <p>
-            Worker heartbeat status:{" "}
-            {metrics.lastAutoApplyHeartbeat
-              ? `${metrics.lastAutoApplyHeartbeat.toLocaleString()}${
-                  metrics.autoApplyWorkerStale ? " (stale)" : ""
-                }`
-              : "no heartbeat yet"}
-          </p>
         </div>
         <div className="mt-4">
           <p className="mb-2 text-ds-caption font-medium text-slate-400">Manual trigger (same logic as scheduled worker)</p>

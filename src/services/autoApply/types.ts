@@ -21,7 +21,7 @@ export interface ApplicationProfile {
   defaultCoverLetter: string;
   /** When set, use this in apply flow instead of defaultCoverLetter (from approved TailoredApplication). */
   tailoredCoverLetter?: string;
-  /** Short recruiter message (e.g. for InMail); use where relevant in apply flow. */
+  /** Short recruiter message (e.g. for InMail); use where relevant in apply flow. From tailored app or apply profile template. */
   tailoredRecruiterMessage?: string;
 }
 
@@ -40,6 +40,23 @@ export function userToApplicationProfile(user: IUser): ApplicationProfile {
     portfolioUrl: (user as IUser & { portfolioUrl?: string }).portfolioUrl ?? "",
     resumeFilePath: (user as IUser & { resumeFilePath?: string }).resumeFilePath ?? "",
     defaultCoverLetter: (user as IUser & { defaultCoverLetter?: string }).defaultCoverLetter ?? ""
+  };
+}
+
+/** Build ApplicationProfile from an ApplyProfile + User (for apply flow when using apply profiles). */
+export function applyProfileToApplicationProfile(
+  user: IUser,
+  applyProfile: { resumeFilePath?: string; coverLetterTemplate?: string; recruiterMessageTemplate?: string }
+): ApplicationProfile {
+  const base = userToApplicationProfile(user);
+  const resumePath = (applyProfile.resumeFilePath ?? "").trim() || base.resumeFilePath;
+  const defaultCover = (applyProfile.coverLetterTemplate ?? "").trim() || base.defaultCoverLetter;
+  const recruiterMsg = (applyProfile.recruiterMessageTemplate ?? "").trim();
+  return {
+    ...base,
+    resumeFilePath: resumePath,
+    defaultCoverLetter: defaultCover,
+    tailoredRecruiterMessage: recruiterMsg || base.tailoredRecruiterMessage
   };
 }
 

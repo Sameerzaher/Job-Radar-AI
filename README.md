@@ -158,6 +158,16 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
    - **Safety env:** `AUTO_APPLY_ENABLED`, `AUTO_APPLY_SCORE_THRESHOLD` (default 90), `REVIEW_SCORE_MIN` (80), `MAX_APPLICATIONS_PER_RUN`, `MAX_APPLICATIONS_PER_DAY`, `REQUIRE_REVIEW_FOR_SOURCES`, `DRY_RUN_DEFAULT`.
    - **Manual controls:** Dashboard has Sync all, Auto apply, Dry run, Retry failed. Activity log records sync/apply/review/telegram for metrics.
 
+10. **Apply profiles (resume versions)**  
+   Define multiple application profiles (e.g. Full Stack, Backend), each with its own resume, cover letter template, and targeting (roles, keywords, locations). The system selects the best profile per job for tailoring and auto-apply. See **docs/APPLY_PROFILES.md**.
+
+11. **Digest (Telegram)**  
+   Daily or on-demand summary of **new high-match jobs** and **status changes** (applied, failed, needs review) since the last digest.  
+   - **Env:** `DIGEST_SCORE_THRESHOLD` (default 70), `DIGEST_HOURS` (default 24, used when no previous digest).  
+   - **Run once:** `npm run digest` or `GET/POST /api/cron/digest` (optional `x-api-key` if `ADMIN_API_KEY` is set).  
+   - **Schedule:** Use system cron (e.g. `0 9 * * *` for 9:00 daily) to call the API or run `npm run digest`.  
+   - Activity log type `digest` records each run (success/failed/skipped).
+
 ### What to build next
 
 - **Job ingestion pipeline**
@@ -174,6 +184,6 @@ No authentication or OpenAI calls are wired – the app is intentionally single-
   - Add sign-in, multi-profile support, and per-user job pipelines once the scoring feels right.
 
 - **Notifications & digests**
-  - Daily/weekly email or in-app digest of new high-match jobs and status changes.
+  - Telegram digest is implemented (see §10); optional: email or in-app digest.
 
 This repo gives you a solid, typed foundation (models, services, scoring, and minimal UI) to iterate quickly on ingest, ranking, and personalization.***

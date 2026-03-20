@@ -4,7 +4,8 @@ import {
   getApplicationStats,
   getOperationalMetrics,
   getGreenhouseMetrics,
-  getAutoQueueMetrics
+  getAutoQueueMetrics,
+  getDashboardActivitySeries
 } from "@/services/jobService";
 import { getTailoringMetrics } from "@/services/tailoredApplicationService";
 import { getDiscoveryMetrics } from "@/services/discovery/discoveryMetrics";
@@ -14,12 +15,13 @@ import { PageHeader, Section, SectionCard, StatCard } from "@/components/ui";
 import { LastSync } from "@/components/dashboard/LastSync";
 import { SyncNowButton } from "@/components/dashboard/SyncNowButton";
 import { DashboardControls } from "@/components/dashboard/DashboardControls";
+import { ActivityChart } from "@/components/dashboard/ActivityChart";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await getOrCreateDefaultUser();
-  const [stats, lastSync, appStats, metrics, tailoringMetrics, discoveryMetrics, telegram, greenhouseMetrics, autoQueueMetrics] = await Promise.all([
+  const [stats, lastSync, appStats, metrics, tailoringMetrics, discoveryMetrics, telegram, greenhouseMetrics, autoQueueMetrics, activitySeries] = await Promise.all([
     getDashboardStats(user),
     getLastSync(),
     getApplicationStats(user),
@@ -28,7 +30,8 @@ export default async function DashboardPage() {
     getDiscoveryMetrics(),
     getTelegramDiagnostics(),
     getGreenhouseMetrics(user),
-    getAutoQueueMetrics(user)
+    getAutoQueueMetrics(user),
+    getDashboardActivitySeries(user)
   ]);
 
   return (
@@ -65,6 +68,18 @@ export default async function DashboardPage() {
           <StatCard label="Saved" value={stats.savedJobs} />
         </div>
       </Section>
+
+      <SectionCard>
+        <h2 className="text-ds-title font-semibold text-slate-100">
+          Activity (last 7 days)
+        </h2>
+        <p className="mt-1 text-ds-caption text-slate-500">
+          New jobs added to your radar and applications submitted per day.
+        </p>
+        <div className="mt-5 max-w-2xl">
+          <ActivityChart series={activitySeries} />
+        </div>
+      </SectionCard>
 
       <LastSync lastSync={lastSync} />
 
